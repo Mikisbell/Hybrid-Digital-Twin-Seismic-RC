@@ -54,14 +54,11 @@
   address   = {Farmington Hills, MI}
 }
 
+% [6] merged into [10] — Zhang et al. (2020) PINN structural dynamics
+% (kept as alias for backward compatibility in any existing citations)
 @article{ref6_pinn_structural,
-  author  = {Zhang, Ruiyang and Liu, Yang and Sun, Hao},
-  title   = {Physics-Informed Multi-LSTM Networks for Metamodeling of Nonlinear Structures},
-  journal = {Computer Methods in Applied Mechanics and Engineering},
-  year    = {2020},
-  volume  = {369},
-  pages   = {113226},
-  doi     = {10.1016/j.cma.2020.113226}
+  crossref = {ref10_zhang_pinn_structural},
+  note     = {See [10]}
 }
 
 @article{ref7_concrete02,
@@ -81,4 +78,63 @@
   journal = {IABSE Symposium on Resistance and Ultimate Deformability of Structures Acted on by Well Defined Repeated Loads},
   year    = {1973},
   pages   = {15--22}
+}
+
+@article{ref9_swish,
+  author  = {Ramachandran, Prajit and Zoph, Barret and Le, Quoc V.},
+  title   = {Searching for Activation Functions},
+  journal = {arXiv preprint arXiv:1710.05941},
+  year    = {2017}
+}
+
+@article{ref10_zhang_pinn_structural,
+  author  = {Zhang, Ruiyang and Liu, Yang and Sun, Hao},
+  title   = {Physics-Informed Multi-LSTM Networks for Metamodeling of Nonlinear Structures},
+  journal = {Computer Methods in Applied Mechanics and Engineering},
+  year    = {2020},
+  volume  = {369},
+  pages   = {113226},
+  doi     = {10.1016/j.cma.2020.113226}
+}
+
+@inproceedings{ref11_adamw,
+  author    = {Loshchilov, Ilya and Hutter, Frank},
+  title     = {Decoupled Weight Decay Regularization},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2019}
+}
+
+@inproceedings{ref12_sgdr,
+  author    = {Loshchilov, Ilya and Hutter, Frank},
+  title     = {SGDR: Stochastic Gradient Descent with Warm Restarts},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2017}
+}
+
+@article{ref13_pytorch,
+  author  = {Paszke, Adam and Gross, Sam and Massa, Francisco and Lerer, Adam and Bradbury, James and Chanan, Gregory and Killeen, Trevor and Lin, Zeming and Gimelshein, Natalia and Antiga, Luca and Desmaison, Alban and K{\"o}pf, Andreas and Yang, Edward and DeVito, Zachary and Raison, Martin and Tejani, Alykhan and Chilamkurthy, Sasank and Steiner, Benoit and Fang, Lu and Bai, Junjie and Chintala, Soumith},
+  title   = {PyTorch: An Imperative Style, High-Performance Deep Learning Library},
+  journal = {Advances in Neural Information Processing Systems},
+  year    = {2019},
+  volume  = {32},
+  pages   = {8024--8035}
+}
+
+@inproceedings{ref14_kaiming,
+  author    = {He, Kaiming and Zhang, Xiangyu and Ren, Shaoqing and Sun, Jian},
+  title     = {Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification},
+  booktitle = {IEEE International Conference on Computer Vision (ICCV)},
+  year      = {2015},
+  pages     = {1026--1034},
+  doi       = {10.1109/ICCV.2015.123}
+}
+
+@article{ref15_self_adaptive_pinn,
+  author  = {McClenny, Levi D. and Braga-Neto, Ulisses M.},
+  title   = {Self-Adaptive Physics-Informed Neural Networks},
+  journal = {Journal of Computational Physics},
+  year    = {2023},
+  volume  = {474},
+  pages   = {111722},
+  doi     = {10.1016/j.jcp.2022.111722}
 }
