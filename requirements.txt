@@ -1,0 +1,36 @@
+# Hybrid Digital Twin Framework - Dependencies
+
+# Core scientific computing
+numpy>=1.24.0
+scipy>=1.10.0
+pandas>=2.0.0
+
+# OpenSeesPy for structural analysis
+openseespy>=3.5.0
+
+# Machine Learning and Deep Learning
+torch>=2.0.0
+tensorflow>=2.13.0  # Alternative framework option
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.14.0
+
+# Jupyter notebooks
+jupyter>=1.0.0
+notebook>=6.5.0
+ipykernel>=6.23.0
+
+# Data management
+h5py>=3.8.0
+tables>=3.8.0
+
+# Utilities
+tqdm>=4.65.0
+pyyaml>=6.0
+
+# Optional: For advanced PINN implementations
+# scikit-learn>=1.2.0
+# jax[cpu]>=0.4.0
+# flax>=0.6.0
