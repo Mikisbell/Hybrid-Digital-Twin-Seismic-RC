@@ -36,8 +36,9 @@
 
 - Database: PEER NGA-West2 [2]
 - Selection criteria: Magnitude 6.0–7.5, Rjb 10–50 km
-- Number of records: ≥50 (two horizontal components each)
+- Number of records: ≥200 (two horizontal components each, yielding 400+ time histories)
 - Scaling: Spectrum-compatible to design spectrum (ASCE 7-22)
+- Rationale: 200+ records provide statistical robustness for ML training and capture the aleatory variability inherent in seismic ground motions
 
 ## 3.3 Data Processing Pipeline
 
@@ -74,15 +75,20 @@ Raw NLTHA Output → Feature Extraction → Normalization → Train/Val/Test Spl
 
 The total loss embeds the equation of motion as a physics constraint:
 
-$$\mathcal{L}_{total} = \mathcal{L}_{data} + \lambda \left\| M\ddot{u} + C\dot{u} + Ku + M\iota\ddot{u}_g \right\|^2$$
+$$\mathcal{L}_{total} = \mathcal{L}_{data} + \lambda_p \left\| M\ddot{u} + C\dot{u} + f_{int}(u, \dot{u}) + M\iota\ddot{u}_g \right\|^2 + \lambda_b \mathcal{L}_{bc}$$
 
 Where:
 - $\mathcal{L}_{data}$: Mean squared error between predicted and simulated IDR
-- $M$, $C$, $K$: Mass, damping, and stiffness matrices
+- $M$, $C$: Mass and damping matrices (constant)
+- $f_{int}(u, \dot{u})$: **Nonlinear restoring force** vector from OpenSeesPy, replacing the constant stiffness $K$. For RC elements with Concrete02/Steel02, this captures cracking, yielding, and cyclic degradation — essential for the "Hybrid" nature of the Digital Twin
 - $\ddot{u}$, $\dot{u}$, $u$: Acceleration, velocity, displacement vectors
-- $\ddot{u}_g$: Ground acceleration
+- $\ddot{u}_g$: Ground acceleration input
 - $\iota$: Influence vector
-- $\lambda$: Physics regularization weight (hyperparameter)
+- $\lambda_p$: Physics loss weight (tunable hyperparameter)
+- $\lambda_b$: Boundary condition loss weight
+- $\mathcal{L}_{bc}$: Boundary/initial conditions: $u(0)=0$, $\dot{u}(0)=0$
+
+> **Note**: The use of $f_{int}(u, \dot{u})$ instead of $Ku$ is critical. For nonlinear RC structures, the tangent stiffness varies with displacement history. The restoring force is computed by OpenSeesPy at each time step, providing the ground truth that the PINN must learn to approximate.
 
 ### 3.4.3 Training Protocol
 
