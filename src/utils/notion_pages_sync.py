@@ -5,10 +5,10 @@ notion_pages_sync.py — Create & populate Notion sub-pages
 Builds the full Notion documentation workspace with dedicated
 child pages under the main project page:
 
-    1. 📖 Documentación Técnica
-    2. 📝 Manuscrito HRPUB
-    3. 🔬 Metodología y Resultados
-    4. 🛠️ Guía de Desarrollo
+    1. 📖 Technical Documentation
+    2. 📝 HRPUB Manuscript
+    3. 🔬 Methodology & Results
+    4. 🛠️ Development Guide
 
 Each page is created as a child of the main project page and
 populated with rich content derived from the codebase and manuscript.
@@ -168,8 +168,8 @@ def toc() -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _build_documentacion_tecnica() -> list[dict]:
-    """📖 Documentación Técnica — complete technical reference."""
+def _build_technical_docs() -> list[dict]:
+    """Build the Technical Documentation sub-page."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     blocks: list[dict] = []
 
@@ -177,7 +177,7 @@ def _build_documentacion_tecnica() -> list[dict]:
     blocks.append(toc())
     blocks.append(divider())
 
-    # --- Modelo Estructural ---
+    # --- Structural Model ---
     blocks.append(h1("🏗️ Modelo Estructural OpenSeesPy"))
     blocks.append(
         para(
@@ -477,7 +477,7 @@ def _build_documentacion_tecnica() -> list[dict]:
 
     blocks.append(divider())
 
-    # --- Utilidades ---
+    # --- Utilities ---
     blocks.append(h1("🔧 Módulos de Utilidad"))
     blocks.append(h2("FigureManager"))
     blocks.append(
@@ -534,8 +534,8 @@ def _build_documentacion_tecnica() -> list[dict]:
     return blocks
 
 
-def _build_manuscrito_hrpub() -> list[dict]:
-    """📝 Manuscrito HRPUB — publication tracking."""
+def _build_hrpub_manuscript() -> list[dict]:
+    """Build the HRPUB Manuscript sub-page."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     blocks: list[dict] = []
 
@@ -725,8 +725,8 @@ def _build_manuscrito_hrpub() -> list[dict]:
     return blocks
 
 
-def _build_metodologia_resultados() -> list[dict]:
-    """🔬 Metodología y Resultados — campaigns and metrics."""
+def _build_methodology_results() -> list[dict]:
+    """Build the Methodology & Results sub-page."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     blocks: list[dict] = []
 
@@ -916,8 +916,8 @@ def _build_metodologia_resultados() -> list[dict]:
     return blocks
 
 
-def _build_guia_desarrollo() -> list[dict]:
-    """🛠️ Guía de Desarrollo — setup, commands, CI/CD, conventions."""
+def _build_development_guide() -> list[dict]:
+    """Build the Development Guide sub-page."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     blocks: list[dict] = []
 
@@ -1174,10 +1174,10 @@ class NotionPagesSync:
     """Create and populate Notion sub-pages."""
 
     SUB_PAGES = [
-        ("📖 Documentación Técnica", "📖", _build_documentacion_tecnica),
-        ("📝 Manuscrito HRPUB", "📝", _build_manuscrito_hrpub),
-        ("🔬 Metodología y Resultados", "🔬", _build_metodologia_resultados),
-        ("🛠️ Guía de Desarrollo", "🛠️", _build_guia_desarrollo),
+        ("📖 Documentación Técnica", "📖", _build_technical_docs),
+        ("📝 Manuscrito HRPUB", "📝", _build_hrpub_manuscript),
+        ("🔬 Metodología y Resultados", "🔬", _build_methodology_results),
+        ("🛠️ Guía de Desarrollo", "🛠️", _build_development_guide),
     ]
 
     def __init__(self, dry_run: bool = False) -> None:
