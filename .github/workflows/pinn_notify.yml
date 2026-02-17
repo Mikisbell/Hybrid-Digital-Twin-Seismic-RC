@@ -83,8 +83,17 @@ jobs:
 
           # Create Notion page in Simulation Log
           properties = {
-              'Nombre': {
+              'Movimiento Sísmico': {
                   'title': [{'text': {'content': f'PINN: {commit_msg[:80]}'}}]
+              },
+              'Fase': {
+                  'select': {'name': 'Métodos'}
+              },
+              'Estado': {
+                  'select': {'name': 'Convergió'}
+              },
+              'Notas': {
+                  'rich_text': [{'text': {'content': description[:2000]}}]
               },
           }
 

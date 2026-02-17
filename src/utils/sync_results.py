@@ -3,7 +3,7 @@ Notion Sync Engine for Hybrid Digital Twin Simulations
 =======================================================
 
 Automatically logs OpenSeesPy simulation results to a Notion database.
-This module is the bridge between the Simulation Layer and the Research 
+This module is the bridge between the Simulation Layer and the Research
 Documentation Layer, ensuring every data point is traceable (HRPUB compliance).
 
 Usage:
@@ -27,10 +27,9 @@ Author: Mikisbell
 Project: Hybrid Digital Twin for Seismic RC Buildings
 """
 
-import os
 import logging
+import os
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +38,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 try:
     from notion_client import Client as NotionClient
+
     NOTION_AVAILABLE = True
 except ImportError:
     NOTION_AVAILABLE = False
-    logger.warning(
-        "notion-client not installed. Run: pip install notion-client"
-    )
+    logger.warning("notion-client not installed. Run: pip install notion-client")
 
 
 class NotionResearchLogger:
@@ -52,22 +50,20 @@ class NotionResearchLogger:
     Logs simulation results and research milestones to a Notion database.
 
     The database should have the following properties (columns):
-        - Ground Motion   (Title)
-        - Max Drift       (Number, format: percent)
-        - PGA             (Number, unit: g)
-        - Stories         (Number)
-        - Status          (Select: Converged / Diverged / Running)
-        - Phase           (Select: Methods / Results / Validation)
+        - Movimiento Sísmico  (Title)
+        - Deriva Máxima      (Number, format: percent)
+        - PGA (g)            (Number, unit: g)
+        - Pisos              (Number)
+        - Estado             (Select: Convergió / Divergió / En ejecución / En cola)
+        - Fase               (Select: Métodos / Resultados / Validación)
         - Date            (Date)
-        - Notes           (Rich Text)
-        - Source          (Rich Text)  ← For HRPUB citation tracing
+        - Notas              (Rich Text)
+        - Referencia         (Rich Text)  ← For HRPUB citation tracing
     """
 
-    def __init__(self, token: Optional[str] = None, database_id: Optional[str] = None):
+    def __init__(self, token: str | None = None, database_id: str | None = None):
         if not NOTION_AVAILABLE:
-            raise ImportError(
-                "notion-client is required. Install with: pip install notion-client"
-            )
+            raise ImportError("notion-client is required. Install with: pip install notion-client")
 
         self.token = token or os.environ.get("NOTION_TOKEN")
         self.database_id = database_id or os.environ.get("NOTION_DATABASE_ID")
@@ -125,38 +121,36 @@ class NotionResearchLogger:
         dict
             Notion API response.
         """
+        # Map convergence status to Spanish DB values
+        status_map = {
+            "Converged": "Convergi\u00f3",
+            "Diverged": "Divergi\u00f3",
+            "Running": "En ejecuci\u00f3n",
+            "Queued": "En cola",
+        }
+        # Map phase to Spanish DB values
+        phase_map = {
+            "Methods": "M\u00e9todos",
+            "Results": "Resultados",
+            "Validation": "Validaci\u00f3n",
+        }
+
         properties = {
-            "Ground Motion": {
-                "title": [{"text": {"content": ground_motion}}]
-            },
-            "Max Drift": {
-                "number": round(max_drift, 6)
-            },
-            "PGA": {
-                "number": round(peak_acceleration, 4)
-            },
-            "Stories": {
-                "number": num_stories
-            },
-            "Status": {
-                "select": {"name": convergence_status}
-            },
-            "Phase": {
-                "select": {"name": phase}
-            },
-            "Date": {
-                "date": {"start": datetime.now(timezone.utc).isoformat()}
-            },
-            "Notes": {
+            "Movimiento S\u00edsmico": {"title": [{"text": {"content": ground_motion}}]},
+            "Deriva M\u00e1xima": {"number": round(max_drift, 6)},
+            "PGA (g)": {"number": round(peak_acceleration, 4)},
+            "Pisos": {"number": num_stories},
+            "Estado": {"select": {"name": status_map.get(convergence_status, convergence_status)}},
+            "Fase": {"select": {"name": phase_map.get(phase, phase)}},
+            "Fecha": {"date": {"start": datetime.now(timezone.utc).isoformat()}},
+            "Notas": {
                 "rich_text": [{"text": {"content": notes[:2000]}}]  # Notion limit
             },
         }
 
-        # Only add Source if provided (keeps the table clean)
+        # Only add Referencia if provided (keeps the table clean)
         if source_ref:
-            properties["Source"] = {
-                "rich_text": [{"text": {"content": source_ref}}]
-            }
+            properties["Referencia"] = {"rich_text": [{"text": {"content": source_ref}}]}
 
         try:
             response = self.client.pages.create(
@@ -204,45 +198,49 @@ class NotionResearchLogger:
     # Utility: Update status of an existing entry
     # -----------------------------------------------------------------------
     def update_status(self, page_id: str, new_status: str) -> dict:
-        """Update the Status property of an existing Notion page."""
+        """Update the Estado property of an existing Notion page."""
         return self.client.pages.update(
             page_id=page_id,
-            properties={
-                "Status": {"select": {"name": new_status}}
-            },
+            properties={"Estado": {"select": {"name": new_status}}},
         )
 
     # -----------------------------------------------------------------------
     # Utility: Query the database for existing records
     # -----------------------------------------------------------------------
-    def query_simulations(self, status_filter: Optional[str] = None) -> list:
+    def query_simulations(self, status_filter: str | None = None) -> list:
         """
         Query simulation records, optionally filtering by status.
+
+        Uses ``client.search()`` (notion-client v3 compatible) since
+        ``databases.query()`` was removed in v3.
 
         Parameters
         ----------
         status_filter : str, optional
-            Filter by "Converged", "Diverged", etc.
+            Filter by "Convergi\u00f3", "Divergi\u00f3", etc.
 
         Returns
         -------
         list
             List of Notion page objects.
         """
-        filter_params = {}
-        if status_filter:
-            filter_params = {
-                "filter": {
-                    "property": "Status",
-                    "select": {"equals": status_filter},
-                }
-            }
-
-        response = self.client.databases.query(
-            database_id=self.database_id,
-            **filter_params,
+        pages: list = []
+        search_results = self.client.search(
+            query="", filter={"value": "page", "property": "object"}
         )
-        return response.get("results", [])
+        for p in search_results.get("results", []):
+            parent = p.get("parent", {})
+            db_id = parent.get("database_id", "")
+            if self.database_id not in db_id:
+                continue
+            if status_filter:
+                props = p.get("properties", {})
+                estado = props.get("Estado", {})
+                sel = estado.get("select", {}) or {}
+                if sel.get("name") != status_filter:
+                    continue
+            pages.append(p)
+        return pages
 
 
 # ---------------------------------------------------------------------------
@@ -251,9 +249,7 @@ class NotionResearchLogger:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Log a simulation result to Notion"
-    )
+    parser = argparse.ArgumentParser(description="Log a simulation result to Notion")
     parser.add_argument("--gm", required=True, help="Ground motion name")
     parser.add_argument("--drift", type=float, required=True, help="Max drift ratio")
     parser.add_argument("--pga", type=float, default=0.0, help="PGA in g")
