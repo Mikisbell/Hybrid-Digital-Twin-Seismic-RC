@@ -434,8 +434,8 @@ class PINNTrainer:
             elapsed = time.perf_counter() - t_epoch
             self.history.update(epoch, train_loss, val_loss, train_comps, current_lr, elapsed)
 
-            # Save best model
-            if val_loss < self.history.best_val_loss:
+            # Save best model (check best_epoch since update() already set it)
+            if self.history.best_epoch == epoch:
                 best_state = {
                     "epoch": epoch,
                     "model_state_dict": {

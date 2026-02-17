@@ -21,6 +21,7 @@ data/processed/**/*.h5
 data/processed/**/*.pkl
 data/processed/**/*.parquet
 data/processed/**/*.npy
+data/processed/**/*.pt
 data/processed/**/*.npz
 data/external/**/*.csv
 data/external/**/*.hdf5
