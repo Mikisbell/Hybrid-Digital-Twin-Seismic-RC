@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -35,19 +36,29 @@ logger = logging.getLogger(__name__)
 
 def load_processed(
     processed_dir: str = "data/processed",
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Load train and val tensors from the pipeline output.
+) -> dict[str, Any]:
+    """Load train/val/test data from the pipeline output.
 
     Returns
     -------
-    x_train, y_train, x_val, y_val : torch.Tensor
+    dict
+         Dictionary with keys 'train', 'val', 'test', each containing
+         the data dictionary loaded from .pt files.
     """
     d = Path(processed_dir)
+    data = {}
+    for split in ["train", "val", "test"]:
+        p = d / f"{split}.pt"
+        if p.exists():
+            data[split] = torch.load(p, weights_only=True)
+        else:
+            # Fallback for old pipeline runs or missing test set
+            logger.warning("Missing processed file: %s", p)
+            if split == "test" and "val" in data:
+                # Use val as test if missing
+                data["test"] = data["val"]
 
-    train_data = torch.load(d / "train.pt", weights_only=True)
-    val_data = torch.load(d / "val.pt", weights_only=True)
-
-    return train_data["x"], train_data["y"], val_data["x"], val_data["y"]
+    return data
 
 
 def main() -> None:
@@ -61,6 +72,7 @@ def main() -> None:
     parser.add_argument("--processed-dir", default="data/processed", help="Processed data dir")
     parser.add_argument("--checkpoint-dir", default="data/models", help="Model output dir")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    parser.add_argument("--lambda-phys", type=float, default=0.1, help="Physics loss weight")
     args = parser.parse_args()
 
     level = logging.DEBUG if args.verbose else logging.INFO
@@ -72,25 +84,29 @@ def main() -> None:
 
     # Load data
     logger.info("Loading processed data from %s", args.processed_dir)
-    x_train, y_train, x_val, y_val = load_processed(args.processed_dir)
-    logger.info(
-        "Train: x=%s y=%s | Val: x=%s y=%s",
-        list(x_train.shape),
-        list(y_train.shape),
-        list(x_val.shape),
-        list(y_val.shape),
-    )
+    data = load_processed(args.processed_dir)
+
+    # Check shapes
+    if "train" in data and "x" in data["train"]:
+        x_shape = data["train"]["x"].shape
+        y_shape = data["train"]["y"].shape
+        logger.info("Train: x=%s y=%s", list(x_shape), list(y_shape))
+
+    # Extract global physics constants (mass matrix)
+    mass_matrix = None
+    if "train" in data and "mass_matrix" in data["train"]:
+        mass_matrix = data["train"]["mass_matrix"]
+        logger.info("Loaded mass matrix: %s", list(mass_matrix.shape))
 
     # Create DataLoaders
-    train_loader, val_loader = create_loaders(
-        x_train, y_train, x_val, y_val, batch_size=args.batch_size
-    )
+    # create_loaders returns 3 loaders now
+    train_loader, val_loader, test_loader = create_loaders(data, batch_size=args.batch_size)
 
     # Build model
     model_cfg = PINNConfig(seq_len=args.seq_len, n_stories=5)
     model = HybridPINN(model_cfg)
     logger.info("Model: %d parameters", model.count_parameters())
-    logger.info("\n%s", model.summary())
+    # logger.info("\n%s", model.summary())
 
     # Configure training
     train_cfg = TrainConfig(
@@ -102,15 +118,15 @@ def main() -> None:
         checkpoint_dir=args.checkpoint_dir,
         log_every=10,
         save_every=100,
-        # Data-dominated loss (supervised training with light physics)
+        # Hybrid loss weights
         lambda_data=1.0,
-        lambda_phys=0.01,
-        lambda_bc=0.001,
+        lambda_phys=args.lambda_phys,
+        lambda_bc=0.01,
     )
 
     # Train
-    trainer = PINNTrainer(model, train_cfg)
-    history = trainer.fit(train_loader, val_loader)
+    trainer = PINNTrainer(model, train_cfg, mass_matrix=mass_matrix)
+    history = trainer.train(train_loader, val_loader)
 
     # Summary
     logger.info(
@@ -123,9 +139,11 @@ def main() -> None:
     # Quick inference test
     model.eval()
     with torch.no_grad():
-        sample = x_val[:4]
-        pred = model(sample)
-        logger.info("Sample predictions (val[:4]):\n%s", pred.numpy())
+        # Get one batch from val_loader
+        batch = next(iter(val_loader))
+        x_sample = batch[0][:4].to(trainer.device)
+        pred = model(x_sample)
+        logger.info("Sample predictions (val[:4]):\n%s", pred.cpu().numpy())
 
 
 if __name__ == "__main__":

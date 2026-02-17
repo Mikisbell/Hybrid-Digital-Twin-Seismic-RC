@@ -91,11 +91,11 @@ def data_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 def physics_loss(
     mass_matrix: torch.Tensor,
-    damping_matrix: torch.Tensor,
     accel_response: torch.Tensor,
     vel_response: torch.Tensor,
     f_int: torch.Tensor,
     ground_accel: torch.Tensor,
+    damping_matrix: torch.Tensor | None = None,
     influence_vector: torch.Tensor | None = None,
 ) -> torch.Tensor:
     r"""Residual of the equation of motion (EOM).
@@ -114,8 +114,6 @@ def physics_loss(
     ----------
     mass_matrix : torch.Tensor
         Lumped mass matrix, shape (n_dof, n_dof) or (n_stories,) diagonal.
-    damping_matrix : torch.Tensor
-        Rayleigh damping matrix, shape (n_dof, n_dof) or (n_stories,) diag.
     accel_response : torch.Tensor
         Absolute/relative floor acceleration, shape (B, n_stories, T).
     vel_response : torch.Tensor
@@ -126,6 +124,9 @@ def physics_loss(
         degradation of Concrete02/Steel02 RC members.
     ground_accel : torch.Tensor
         Ground acceleration time series, shape (B, 1, T) or (B, T).
+    damping_matrix : torch.Tensor or None
+        Rayleigh damping matrix. If None, assumes zero viscous damping
+        (damping likely included in f_int or negligible).
     influence_vector : torch.Tensor or None
         Influence vector ι mapping ground motion to DOFs.
         Shape (n_stories,).  Defaults to all-ones (rigid-diaphragm shear building).
@@ -166,10 +167,13 @@ def physics_loss(
         )
 
     # C·u̇
-    if damping_matrix.dim() == 1:
-        c_vel = damping_matrix.unsqueeze(0).unsqueeze(-1) * vel_response
+    if damping_matrix is not None:
+        if damping_matrix.dim() == 1:
+            c_vel = damping_matrix.unsqueeze(0).unsqueeze(-1) * vel_response
+        else:
+            c_vel = torch.einsum("ij,bjt->bit", damping_matrix, vel_response)
     else:
-        c_vel = torch.einsum("ij,bjt->bit", damping_matrix, vel_response)
+        c_vel = torch.zeros_like(vel_response)
 
     # Residual: R = M·ü + C·u̇ + f_int + M·ι·üg
     residual = m_accel + c_vel + f_int + m_ground
@@ -298,7 +302,7 @@ class HybridPINNLoss(nn.Module):
             t is not None
             for t in (
                 mass_matrix,
-                damping_matrix,
+                # damping_matrix, (optional now)
                 accel_response,
                 vel_response,
                 f_int,

@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.pinn.loss import AdaptiveLossWeights, HybridPINNLoss, LossWeights
@@ -238,6 +237,7 @@ class PINNTrainer:
         self,
         model: HybridPINN,
         config: TrainConfig | None = None,
+        mass_matrix: torch.Tensor | None = None,
     ) -> None:
         self.config = config or TrainConfig()
         self.device = torch.device(self.config.device)
@@ -250,6 +250,9 @@ class PINNTrainer:
             lambda_bc=self.config.lambda_bc,
         )
         self.loss_fn = HybridPINNLoss(weights)
+
+        # Physics constants
+        self.mass_matrix = mass_matrix.to(self.device) if mass_matrix is not None else None
 
         # Adaptive weight balancing (optional)
         self.adaptive: AdaptiveLossWeights | None = None
@@ -294,96 +297,72 @@ class PINNTrainer:
     # ── Training step ──────────────────────────────────────────────────
 
     def _train_epoch(self, loader: DataLoader) -> tuple[float, dict[str, float]]:
-        """Run one training epoch.
-
-        Returns
-        -------
-        epoch_loss : float
-            Average total loss over all batches.
-        avg_components : dict
-            Average per-component losses.
-        """
         self.model.train()
         total_loss = 0.0
-        comp_sums: dict[str, float] = {"L_data": 0.0, "L_physics": 0.0, "L_bc": 0.0}
+        comp_sums: dict[str, float] = {}
         n_batches = 0
 
         for batch in loader:
-            # Unpack batch — support variable-length tuples
-            x, y_target = batch[0].to(self.device), batch[1].to(self.device)
+            x, y = batch[0].to(self.device), batch[1].to(self.device)
 
-            # Optional physics tensors (positions 2-7 in batch tuple)
+            # Physics kwargs
             physics_kwargs: dict[str, torch.Tensor] = {}
-            if len(batch) > 2 and batch[2] is not None:
-                physics_kwargs["mass_matrix"] = batch[2].to(self.device)
-            if len(batch) > 3 and batch[3] is not None:
-                physics_kwargs["damping_matrix"] = batch[3].to(self.device)
-            if len(batch) > 4 and batch[4] is not None:
-                physics_kwargs["accel_response"] = batch[4].to(self.device)
-            if len(batch) > 5 and batch[5] is not None:
-                physics_kwargs["vel_response"] = batch[5].to(self.device)
-            if len(batch) > 6 and batch[6] is not None:
-                physics_kwargs["f_int"] = batch[6].to(self.device)
-            if len(batch) > 7 and batch[7] is not None:
-                physics_kwargs["ground_accel"] = batch[7].to(self.device)
+            if self.mass_matrix is not None:
+                physics_kwargs["mass_matrix"] = self.mass_matrix
 
-            # Forward pass
-            y_pred = self.model(x)
+            # Check for expanded batch from create_loaders
+            # Layout: x, y, [f_int, accel, vel, ground]
+            if len(batch) >= 6:
+                physics_kwargs["f_int"] = batch[2].to(self.device)
+                physics_kwargs["accel_response"] = batch[3].to(self.device)
+                physics_kwargs["vel_response"] = batch[4].to(self.device)
+                physics_kwargs["ground_accel"] = batch[5].to(self.device)
 
-            # Compute loss
-            loss, components = self.loss_fn(
-                pred=y_pred,
-                target=y_target,
-                **physics_kwargs,
-            )
-
-            # Backward pass
             self.optimiser.zero_grad()
+            pred = self.model(x)
+
+            loss, components = self.loss_fn(pred, y, **physics_kwargs)
+
             loss.backward()
-
-            # Gradient clipping
             if self.config.grad_clip_norm > 0:
-                nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    max_norm=self.config.grad_clip_norm,
-                )
-
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
             self.optimiser.step()
 
-            # Adaptive weight update
             if self.adaptive is not None:
                 self.adaptive.step(components)
 
-            # Accumulate
             total_loss += loss.item()
-            for key in comp_sums:
-                comp_sums[key] += components[key].item()
+            for k, v in components.items():
+                comp_sums[k] = comp_sums.get(k, 0.0) + v.item()
             n_batches += 1
 
-        avg_loss = total_loss / max(n_batches, 1)
         avg_comps = {k: v / max(n_batches, 1) for k, v in comp_sums.items()}
-        return avg_loss, avg_comps
+        return total_loss / max(n_batches, 1), avg_comps
 
     # ── Validation step ────────────────────────────────────────────────
 
     @torch.no_grad()
-    def _validate(self, loader: DataLoader) -> float:
-        """Compute validation loss (data-only MSE for early stopping).
-
-        Returns
-        -------
-        float
-            Average validation MSE loss.
-        """
+    def _validate_epoch(self, loader: DataLoader) -> float:
         self.model.eval()
         total_loss = 0.0
         n_batches = 0
 
         for batch in loader:
-            x = batch[0].to(self.device)
-            y_target = batch[1].to(self.device)
-            y_pred = self.model(x)
-            loss = nn.functional.mse_loss(y_pred, y_target)
+            x, y = batch[0].to(self.device), batch[1].to(self.device)
+
+            # Use physics in validation if present?
+            # For now, just track total loss including physics if possible
+            physics_kwargs: dict[str, torch.Tensor] = {}
+            if self.mass_matrix is not None:
+                physics_kwargs["mass_matrix"] = self.mass_matrix
+            if len(batch) >= 6:
+                physics_kwargs["f_int"] = batch[2].to(self.device)
+                physics_kwargs["accel_response"] = batch[3].to(self.device)
+                physics_kwargs["vel_response"] = batch[4].to(self.device)
+                physics_kwargs["ground_accel"] = batch[5].to(self.device)
+
+            pred = self.model(x)
+            loss, _ = self.loss_fn(pred, y, **physics_kwargs)
             total_loss += loss.item()
             n_batches += 1
 
@@ -391,25 +370,12 @@ class PINNTrainer:
 
     # ── Main training loop ─────────────────────────────────────────────
 
-    def fit(
+    def train(
         self,
         train_loader: DataLoader,
         val_loader: DataLoader,
     ) -> TrainHistory:
-        """Train the model for the configured number of epochs.
-
-        Parameters
-        ----------
-        train_loader : DataLoader
-            Training data: each batch is (x, y_target, *optional_physics).
-        val_loader : DataLoader
-            Validation data: each batch is (x, y_target).
-
-        Returns
-        -------
-        TrainHistory
-            Per-epoch metrics.
-        """
+        """Train the model for the configured number of epochs."""
         logger.info(
             "Starting training: %d epochs, %d batches/epoch", self.config.epochs, len(train_loader)
         )
@@ -424,7 +390,7 @@ class PINNTrainer:
             train_loss, train_comps = self._train_epoch(train_loader)
 
             # Validate
-            val_loss = self._validate(val_loader)
+            val_loss = self._validate_epoch(val_loader)
 
             # Scheduler step
             self.scheduler.step()
@@ -434,7 +400,7 @@ class PINNTrainer:
             elapsed = time.perf_counter() - t_epoch
             self.history.update(epoch, train_loss, val_loss, train_comps, current_lr, elapsed)
 
-            # Save best model (check best_epoch since update() already set it)
+            # Save best model
             if self.history.best_epoch == epoch:
                 best_state = {
                     "epoch": epoch,
@@ -450,55 +416,36 @@ class PINNTrainer:
             # Periodic logging
             if epoch % self.config.log_every == 0 or epoch == 1:
                 logger.info(
-                    "Epoch %d/%d — train=%.6f  val=%.6f  "
-                    "[data=%.4e  phys=%.4e  bc=%.4e]  lr=%.2e  (%.1fs)",
+                    "Epoch %d/%d — train=%.6f (phys=%.4e) val=%.6f lr=%.2e (%.1fs)",
                     epoch,
                     self.config.epochs,
                     train_loss,
+                    train_comps.get("L_physics", 0.0),
                     val_loss,
-                    train_comps["L_data"],
-                    train_comps["L_physics"],
-                    train_comps["L_bc"],
                     current_lr,
                     elapsed,
                 )
 
-            # Periodic checkpoint
+            # Checkpoint
             if self.config.save_every > 0 and epoch % self.config.save_every == 0:
                 self._save_intermediate(epoch)
 
-            # Early stopping check
+            # Early stopping
             if self.early_stopping.step(val_loss):
                 logger.info("Training stopped at epoch %d", epoch)
                 break
 
-        # End of training
         self.history.total_time_s = time.perf_counter() - t_start
 
-        # Restore and save best model
         if best_state:
             self.model.load_state_dict(best_state["model_state_dict"])
             ckpt_path = Path(self.config.checkpoint_dir) / "pinn_best.pt"
             ckpt_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(best_state, ckpt_path)
-            logger.info(
-                "Best model saved: epoch=%d, val_loss=%.6f → %s",
-                best_state["epoch"],
-                best_state["val_loss"],
-                ckpt_path,
-            )
+            logger.info("Best model saved: val_loss=%.6f", best_state["val_loss"])
 
-        # Save training history
         hist_path = Path(self.config.checkpoint_dir) / "train_history.json"
         self.history.save(hist_path)
-
-        logger.info(
-            "Training complete: %d epochs in %.1fs (best epoch=%d, val=%.6f)",
-            len(self.history.train_loss),
-            self.history.total_time_s,
-            self.history.best_epoch,
-            self.history.best_val_loss,
-        )
         return self.history
 
     # ── Checkpoint helpers ─────────────────────────────────────────────
@@ -546,50 +493,54 @@ class PINNTrainer:
 
 
 def create_loaders(
-    x_train: torch.Tensor,
-    y_train: torch.Tensor,
-    x_val: torch.Tensor,
-    y_val: torch.Tensor,
+    data: dict[str, Any],
     batch_size: int = 64,
     num_workers: int = 0,
-) -> tuple[DataLoader, DataLoader]:
-    """Build DataLoaders from pre-processed tensor arrays.
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """Create DataLoaders for train/val/test from data dictionary.
 
-    Parameters
-    ----------
-    x_train, y_train : torch.Tensor
-        Training inputs/targets.
-    x_val, y_val : torch.Tensor
-        Validation inputs/targets.
-    batch_size : int
-        Mini-batch size.
-    num_workers : int
-        DataLoader worker processes (0 = main thread).
-
-    Returns
-    -------
-    train_loader, val_loader : DataLoader
-        Ready for :meth:`PINNTrainer.fit`.
+    Data dictionary structure (from pipeline.py):
+        "train": {"x": ..., "y": ..., "f_int": ...},
+        "val": ...
     """
-    train_ds = TensorDataset(x_train, y_train)
-    val_ds = TensorDataset(x_val, y_val)
+
+    def build_dataset(split_data: dict[str, torch.Tensor] | tuple) -> TensorDataset:
+        if isinstance(split_data, tuple | list):
+            # Fallback for simple (x, y) tuples
+            return TensorDataset(*split_data)
+
+        # Dict mode
+        x = split_data["x"]
+        y = split_data["y"]
+        tensors = [x, y]
+
+        # Check for physics tensors
+        # Order MUST match _train_epoch/validate_epoch unpacking!
+        # [x, y, f_int, accel, vel, ground]
+        if "f_int" in split_data:
+            tensors.append(split_data["f_int"])
+        if "accel_response" in split_data:
+            tensors.append(split_data["accel_response"])
+        if "vel_response" in split_data:
+            tensors.append(split_data["vel_response"])
+        if "ground_accel" in split_data:
+            tensors.append(split_data["ground_accel"])
+
+        return TensorDataset(*tensors)
+
+    train_set = build_dataset(data["train"])
+    val_set = build_dataset(data["val"])
+    test_set = build_dataset(data["test"])
 
     train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
-        drop_last=True,
+        train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
+    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = DataLoader(
+        test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
-    return train_loader, val_loader
+
+    return train_loader, val_loader, test_loader
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -627,7 +578,14 @@ def smoke_test(epochs: int = 5, batch_size: int = 16) -> TrainHistory:
     x_val = torch.randn(n_val, 1, cfg.seq_len)
     y_val = torch.rand(n_val, cfg.n_stories) * 0.05
 
-    train_loader, val_loader = create_loaders(x_train, y_train, x_val, y_val, batch_size=batch_size)
+    train_data = {"x": x_train, "y": y_train}
+    val_data = {"x": x_val, "y": y_val}
+    # Mock test data
+    test_data = {"x": x_val, "y": y_val}
+
+    data = {"train": train_data, "val": val_data, "test": test_data}
+
+    train_loader, val_loader, _ = create_loaders(data, batch_size=batch_size)
 
     train_cfg = TrainConfig(
         epochs=epochs,
@@ -638,7 +596,7 @@ def smoke_test(epochs: int = 5, batch_size: int = 16) -> TrainHistory:
     )
 
     trainer = PINNTrainer(model, train_cfg)
-    history = trainer.fit(train_loader, val_loader)
+    history = trainer.train(train_loader, val_loader)
 
     logger.info(
         "Smoke test complete: final_train=%.6f, final_val=%.6f",
