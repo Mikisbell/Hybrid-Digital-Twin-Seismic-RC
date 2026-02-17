@@ -441,9 +441,11 @@ def compute_response_spectrum(
     periods: np.ndarray,
     damping: float = 0.05,
 ) -> np.ndarray:
-    """Compute pseudo-acceleration response spectrum via Newmark-β.
+    """Compute pseudo-acceleration response spectrum via piecewise-exact method.
 
-    Uses the piecewise-exact method for efficiency on long records.
+    Uses the Nigam-Jennings (1969) recurrence relations for an SDOF system
+    subjected to piecewise-linear excitation.  This is the standard approach
+    adopted by PEER and ASCE for ground-motion characterization.
 
     Parameters
     ----------
@@ -459,49 +461,71 @@ def compute_response_spectrum(
     Returns
     -------
     np.ndarray
-        Spectral acceleration Sa(T) in same units as input.
+        Spectral pseudo-acceleration Sa(T) in same units as input.
+
+    References
+    ----------
+    Nigam, N.C. and Jennings, P.C. (1969). "Calculation of response spectra
+    from strong-motion earthquake records." Bull. Seismol. Soc. Am., 59(2).
     """
     sa = np.zeros(len(periods))
+    n = len(acc)
 
     for i, t in enumerate(periods):
-        if t == 0:
+        if t <= 0:
             sa[i] = np.max(np.abs(acc))
             continue
 
         omega = 2.0 * np.pi / t
-        omega_d = omega * np.sqrt(1.0 - damping**2)
-        xi_omega = damping * omega
+        omega2 = omega * omega
+        xi = damping
+        omega_d = omega * np.sqrt(1.0 - xi**2)
+        xi_omega = xi * omega
 
-        # Recurrence coefficients (piecewise-exact for constant accel segments)
         exp_term = np.exp(-xi_omega * dt)
-        cos_term = np.cos(omega_d * dt)
-        sin_term = np.sin(omega_d * dt)
+        cos_d = np.cos(omega_d * dt)
+        sin_d = np.sin(omega_d * dt)
 
-        a11 = exp_term * (cos_term + xi_omega / omega_d * sin_term)
-        a12 = exp_term * sin_term / omega_d
-        a21 = -(omega**2) * exp_term * sin_term / omega_d
-        a22 = exp_term * (cos_term - xi_omega / omega_d * sin_term)
+        # Nigam-Jennings recurrence coefficients for piecewise-linear load
+        # Homogeneous part
+        a11 = exp_term * (cos_d + (xi_omega / omega_d) * sin_d)
+        a12 = exp_term * sin_d / omega_d
+        a21 = -omega2 * a12  # = -ω² exp sin/ωd
+        a22 = exp_term * (cos_d - (xi_omega / omega_d) * sin_d)
 
-        # Simplified: use direct numerical integration for robustness
+        # Particular-solution coefficients for p(τ) = p_j + (p_{j+1}-p_j)/dt * τ
+        # These account for the linear interpolation of excitation within [t_j, t_{j+1}].
+        one_over_omega2 = 1.0 / omega2
+        t1 = (2.0 * xi**2 - 1.0) / (omega2 * dt)
+        t2 = 2.0 * xi / (omega**3 * dt)
+
+        b11 = exp_term * ((t1 + xi / omega) * sin_d / omega_d + (t2 + one_over_omega2) * cos_d) - t2
+        b12 = -(exp_term * (t1 * sin_d / omega_d + t2 * cos_d)) - one_over_omega2 + t2
+        b21 = exp_term * (
+            (t1 + xi / omega) * (cos_d - xi_omega * sin_d / omega_d)
+            - (t2 + one_over_omega2) * (omega_d * sin_d + xi_omega * cos_d)
+        ) + 1.0 / (omega2 * dt)
+        b22 = -exp_term * (
+            t1 * (cos_d - xi_omega * sin_d / omega_d) - t2 * (omega_d * sin_d + xi_omega * cos_d)
+        ) - 1.0 / (omega2 * dt)
+
+        # Time-step through the record
         u = 0.0
         v = 0.0
         sd = 0.0
 
-        for j in range(len(acc) - 1):
-            u_new = a11 * u + a12 * v - dt * (a12 * acc[j])
-            v_new = a21 * u + a22 * v - dt * (a22 * acc[j])
-            # Simplified SDOF with piecewise-linear excitation
-            # Use Newmark average acceleration for robustness
-            u_new = a11 * u + a12 * v + ((1.0 - a11) * acc[j] + (dt - a12) * acc[j]) / omega**2
-            v_new = a21 * u + a22 * v
-
-            # Direct Duhamel integral (most robust for arbitrary signals)
+        for j in range(n - 1):
+            p_j = -acc[j]  # SDOF convention: excitation = -m·ag, per unit mass = -ag
+            p_j1 = -acc[j + 1]
+            u_new = a11 * u + a12 * v + b11 * p_j + b12 * p_j1
+            v_new = a21 * u + a22 * v + b21 * p_j + b22 * p_j1
             u = u_new
             v = v_new
-            sd = max(sd, abs(u))
+            if abs(u) > sd:
+                sd = abs(u)
 
         # Pseudo-acceleration: Sa = ω² × Sd
-        sa[i] = sd * omega**2
+        sa[i] = sd * omega2
 
     return sa
 
@@ -548,6 +572,216 @@ def compute_scale_factor(
     # Least-squares: SF = (rec · tgt) / (rec · rec)
     sf = float(np.dot(rec, tgt) / denom)
     return max(sf, 0.01)  # Enforce positive
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ASCE 7-22 §16.2 Suite-Level Spectral Matching
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class SpectralMatchResult:
+    """Result of the suite-level spectral matching check.
+
+    Attributes
+    ----------
+    passed : bool
+        True if suite mean ≥ threshold × target across the matching range.
+    ratio_min : float
+        Minimum ratio of suite-mean Sa to target Sa in the matching range.
+    threshold : float
+        Acceptance threshold (default: 0.9 per ASCE 7-22 §16.2.2).
+    n_records : int
+        Number of records in the suite.
+    periods : np.ndarray
+        Spectral periods used.
+    suite_mean_sa : np.ndarray
+        Mean response spectrum of the scaled suite.
+    target_sa : np.ndarray
+        Target design spectrum.
+    individual_sa : list[np.ndarray]
+        Scaled Sa for each record.
+    scale_factors : list[float]
+        Applied scale factors.
+    """
+
+    passed: bool
+    ratio_min: float
+    threshold: float
+    n_records: int
+    periods: np.ndarray = field(repr=False)
+    suite_mean_sa: np.ndarray = field(repr=False)
+    target_sa: np.ndarray = field(repr=False)
+    individual_sa: list[np.ndarray] = field(default_factory=list, repr=False)
+    scale_factors: list[float] = field(default_factory=list, repr=False)
+
+
+def validate_suite_spectrum(
+    records_sa: list[np.ndarray],
+    scale_factors: list[float],
+    target_sa: np.ndarray,
+    periods: np.ndarray,
+    period_range: tuple[float, float],
+    threshold: float = 0.9,
+) -> SpectralMatchResult:
+    """Validate that a scaled GM suite satisfies ASCE 7-22 §16.2.2.
+
+    The standard requires: for each period in [0.2·T₁, 1.5·T₁], the **mean**
+    response spectrum of the scaled suite shall not fall below *threshold*
+    (90 %) of the target spectrum.
+
+    Parameters
+    ----------
+    records_sa : list[np.ndarray]
+        Unscaled response spectra, one per record.
+    scale_factors : list[float]
+        Per-record scale factors from ``compute_scale_factor``.
+    target_sa : np.ndarray
+        Target ASCE 7-22 design spectrum.
+    periods : np.ndarray
+        Spectral periods common to all spectra.
+    period_range : tuple[float, float]
+        Period range for matching (T_low, T_high).
+    threshold : float
+        Minimum acceptable ratio (0.9 per code).
+
+    Returns
+    -------
+    SpectralMatchResult
+        Detailed pass/fail result with diagnostic arrays.
+    """
+    mask = (periods >= period_range[0]) & (periods <= period_range[1])
+    if not np.any(mask):
+        logger.warning("No periods in matching range [%.2f, %.2f] s", *period_range)
+        return SpectralMatchResult(
+            passed=False,
+            ratio_min=0.0,
+            threshold=threshold,
+            n_records=len(records_sa),
+            periods=periods,
+            suite_mean_sa=np.zeros_like(target_sa),
+            target_sa=target_sa,
+        )
+
+    # Compute scaled spectra
+    scaled = [sa * sf for sa, sf in zip(records_sa, scale_factors, strict=False)]
+    suite_mean = np.mean(scaled, axis=0)
+
+    # Ratio check in matching range
+    tgt_mask = target_sa[mask]
+    mean_mask = suite_mean[mask]
+
+    # Avoid division by zero
+    ratios = np.where(tgt_mask > 1e-12, mean_mask / tgt_mask, 999.0)
+    ratio_min = float(np.min(ratios))
+    passed = bool(ratio_min >= threshold)
+
+    if passed:
+        logger.info(
+            "Suite spectral check PASSED: min ratio = %.3f ≥ %.2f (%d records)",
+            ratio_min,
+            threshold,
+            len(records_sa),
+        )
+    else:
+        logger.warning(
+            "Suite spectral check FAILED: min ratio = %.3f < %.2f (%d records)",
+            ratio_min,
+            threshold,
+            len(records_sa),
+        )
+
+    return SpectralMatchResult(
+        passed=passed,
+        ratio_min=ratio_min,
+        threshold=threshold,
+        n_records=len(records_sa),
+        periods=periods,
+        suite_mean_sa=suite_mean,
+        target_sa=target_sa,
+        individual_sa=scaled,
+        scale_factors=scale_factors,
+    )
+
+
+def iterative_suite_scaling(
+    records_sa: list[np.ndarray],
+    target_sa: np.ndarray,
+    periods: np.ndarray,
+    period_range: tuple[float, float],
+    max_sf: float = 5.0,
+    threshold: float = 0.9,
+    max_iterations: int = 10,
+) -> tuple[list[float], SpectralMatchResult]:
+    """Iteratively adjust individual scale factors until the suite passes.
+
+    Algorithm:
+        1. Compute initial per-record SF via least-squares.
+        2. Validate suite mean vs target.
+        3. If fail: multiply all SFs by (threshold / ratio_min) and re-check.
+        4. Repeat until pass or max_iterations.
+
+    Parameters
+    ----------
+    records_sa : list[np.ndarray]
+        Unscaled response spectra.
+    target_sa : np.ndarray
+        Target design spectrum.
+    periods : np.ndarray
+        Spectral periods.
+    period_range : tuple[float, float]
+        Period range for matching.
+    max_sf : float
+        Maximum allowed per-record scale factor.
+    threshold : float
+        ASCE 7-22 acceptance threshold (0.9).
+    max_iterations : int
+        Maximum correction iterations.
+
+    Returns
+    -------
+    scale_factors : list[float]
+        Final per-record scale factors.
+    result : SpectralMatchResult
+        Final suite validation result.
+    """
+    # Step 1: initial per-record SF
+    scale_factors = [
+        compute_scale_factor(sa, target_sa, periods, period_range) for sa in records_sa
+    ]
+
+    for iteration in range(max_iterations):
+        result = validate_suite_spectrum(
+            records_sa, scale_factors, target_sa, periods, period_range, threshold
+        )
+
+        if result.passed:
+            logger.info("Suite matching converged after %d iteration(s).", iteration + 1)
+            return scale_factors, result
+
+        # Correction: boost all SFs so the weakest period meets the threshold
+        boost = threshold / result.ratio_min if result.ratio_min > 0 else 2.0
+
+        scale_factors = [min(sf * boost, max_sf) for sf in scale_factors]
+        logger.info(
+            "  Iteration %d: boosted SFs by %.3f (min ratio was %.3f)",
+            iteration + 1,
+            boost,
+            result.ratio_min,
+        )
+
+    # Final check after last iteration
+    result = validate_suite_spectrum(
+        records_sa, scale_factors, target_sa, periods, period_range, threshold
+    )
+    if not result.passed:
+        logger.warning(
+            "Suite matching did NOT converge after %d iterations (ratio=%.3f).",
+            max_iterations,
+            result.ratio_min,
+        )
+
+    return scale_factors, result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -598,12 +832,10 @@ def build_ground_motion_records(
         periods, config.spectrum.sds, config.spectrum.sd1, config.spectrum.tl
     )
 
-    # Step 4: Process each record
-    gm_records: list[GroundMotionRecord] = []
+    # Step 4: Process each record — compute spectra and initial SFs
+    candidates: list[tuple[np.ndarray, float, dict, np.ndarray]] = []  # (acc_g, dt, info, Sa)
 
     for acc, dt, info in raw_records:
-        name = info.get("description", info.get("filename", "unknown"))
-
         # Extract RSN from filename (e.g., "RSN953_NORTHR_MUL009.AT2")
         rsn_match = re.search(r"RSN(\d+)", info.get("filename", ""), re.IGNORECASE)
         rsn = int(rsn_match.group(1)) if rsn_match else None
@@ -624,16 +856,36 @@ def build_ground_motion_records(
 
         # Compute response spectrum
         record_sa = compute_response_spectrum(acc_g, dt, periods, config.spectrum.damping)
+        candidates.append((acc_g, dt, info, record_sa))
 
-        # Compute scale factor
-        sf = compute_scale_factor(record_sa, target_sa, periods, config.scale_period_range)
+    if not candidates:
+        logger.warning("No valid records after parsing + flatfile filter.")
+        return _generate_synthetic_suite(config)
 
-        # Reject if scale factor too large
+    # Step 5: ASCE 7-22 §16.2 iterative suite-level spectral matching
+    all_sa = [c[3] for c in candidates]
+    scale_factors, match_result = iterative_suite_scaling(
+        records_sa=all_sa,
+        target_sa=target_sa,
+        periods=periods,
+        period_range=config.scale_period_range,
+        max_sf=config.max_scale_factor,
+        threshold=0.9,
+    )
+
+    # Step 6: Build GroundMotionRecords, rejecting over-scaled entries
+    gm_records: list[GroundMotionRecord] = []
+
+    for (acc_g, dt, info, _sa), sf in zip(candidates, scale_factors, strict=False):
         if sf > config.max_scale_factor:
-            logger.debug("Rejected %s: SF=%.2f > %.1f", name, sf, config.max_scale_factor)
+            logger.debug(
+                "Rejected %s: SF=%.2f > %.1f",
+                info.get("filename", "?"),
+                sf,
+                config.max_scale_factor,
+            )
             continue
 
-        # Build record name
         safe_name = info.get("filename", "unknown").replace(".AT2", "").replace(".at2", "")
 
         gm = GroundMotionRecord(
@@ -651,6 +903,12 @@ def build_ground_motion_records(
         len(gm_records),
         len(raw_records),
         config.max_scale_factor,
+    )
+    logger.info(
+        "Suite spectral match: %s (min ratio=%.3f, threshold=%.2f)",
+        "PASSED" if match_result.passed else "FAILED",
+        match_result.ratio_min,
+        match_result.threshold,
     )
 
     return gm_records
@@ -797,6 +1055,9 @@ class DataFactory:
         # Step 4: Save summary
         self._save_summary()
 
+        # Step 5: Sync to Notion (non-blocking — failures are logged, not raised)
+        self._sync_to_notion()
+
         elapsed = timer.perf_counter() - t_start
         n_ok = sum(1 for r in self.results if r.get("converged", False))
         logger.info("=" * 70)
@@ -920,6 +1181,52 @@ class DataFactory:
         }
         with open(json_path, "w") as f:
             json.dump(summary_data, f, indent=2)
+
+    def _sync_to_notion(self) -> None:
+        """Sync NLTHA results to Notion Simulation Log database.
+
+        Uses ``NotionResearchLogger`` to create one entry per record.
+        Failures are logged as warnings — they never abort the pipeline.
+        """
+        try:
+            from src.utils.sync_results import NotionResearchLogger
+        except ImportError:
+            logger.info("Notion sync skipped (notion-client not installed).")
+            return
+
+        try:
+            notion = NotionResearchLogger()
+        except (ValueError, ImportError) as exc:
+            logger.warning("Notion sync skipped: %s", exc)
+            return
+
+        n_logged = 0
+        for gm, result in zip(self.gm_records, self.results, strict=False):
+            converged = result.get("converged", False)
+            drifts = result.get("max_drift", [0.0] * 5)
+            pga = float(np.max(np.abs(gm.acceleration)) * gm.scale_factor)
+
+            try:
+                notion.log_simulation(
+                    ground_motion=gm.name,
+                    max_drift=max(drifts) if drifts else 0.0,
+                    peak_acceleration=pga,
+                    convergence_status="Converged" if converged else "Diverged",
+                    num_stories=5,
+                    phase="Methods",
+                    notes=(
+                        f"SF={gm.scale_factor:.3f} | "
+                        f"Duration={gm.duration:.1f}s | "
+                        f"Source={gm.source} | "
+                        f"IDR=[{', '.join(f'{d:.5f}' for d in drifts)}]"
+                    ),
+                    source_ref="Data Factory — commit SHA: see git log",
+                )
+                n_logged += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Notion log failed for %s: %s", gm.name, exc)
+
+        logger.info("Notion sync: %d / %d records logged.", n_logged, len(self.results))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
