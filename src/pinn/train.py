@@ -101,6 +101,21 @@ def main() -> None:
         mass_matrix = data["train"]["mass_matrix"]
         logger.info("Loaded mass matrix: %s", list(mass_matrix.shape))
 
+    # Compute per-story inverse-variance weights from scaler params
+    story_weights = None
+    scaler_path = Path(args.processed_dir) / "scaler_params.json"
+    if scaler_path.exists():
+        import json
+
+        with open(scaler_path) as f:
+            scaler_params = json.load(f)
+        if "target" in scaler_params and "std" in scaler_params["target"]:
+            std_per_story = torch.tensor(scaler_params["target"]["std"], dtype=torch.float32)
+            # Inverse-variance: w_i = 1/std_i, normalised so sum = n_stories
+            inv_std = 1.0 / std_per_story.clamp(min=1e-6)
+            story_weights = inv_std * (len(inv_std) / inv_std.sum())
+            logger.info("Story weights (inverse-variance): %s", story_weights.tolist())
+
     # Create DataLoaders
     # create_loaders returns 3 loaders now
     train_loader, val_loader, test_loader = create_loaders(data, batch_size=args.batch_size)
@@ -128,7 +143,7 @@ def main() -> None:
     )
 
     # Train
-    trainer = PINNTrainer(model, train_cfg, mass_matrix=mass_matrix)
+    trainer = PINNTrainer(model, train_cfg, mass_matrix=mass_matrix, story_weights=story_weights)
     history = trainer.train(train_loader, val_loader)
 
     # Summary

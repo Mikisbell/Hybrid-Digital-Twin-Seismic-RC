@@ -238,6 +238,7 @@ class PINNTrainer:
         model: HybridPINN,
         config: TrainConfig | None = None,
         mass_matrix: torch.Tensor | None = None,
+        story_weights: torch.Tensor | None = None,
     ) -> None:
         self.config = config or TrainConfig()
         self.device = torch.device(self.config.device)
@@ -249,7 +250,8 @@ class PINNTrainer:
             lambda_phys=self.config.lambda_phys,
             lambda_bc=self.config.lambda_bc,
         )
-        self.loss_fn = HybridPINNLoss(weights)
+        sw = story_weights.to(self.device) if story_weights is not None else None
+        self.loss_fn = HybridPINNLoss(weights, story_weights=sw)
 
         # Physics constants
         self.mass_matrix = mass_matrix.to(self.device) if mass_matrix is not None else None

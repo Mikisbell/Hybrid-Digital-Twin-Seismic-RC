@@ -81,6 +81,9 @@ class PINNConfig:
     pool_size: int = 16
     fc_dims: tuple[int, ...] = (256, 128, 64, 32)
     dropout: float = 0.05
+    use_attention: bool = True
+    attn_heads: int = 4
+    attn_dropout: float = 0.1
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -128,8 +131,8 @@ class TemporalEncoder(nn.Module):
             )
             c_in = c_out
 
-        layers.append(nn.AdaptiveAvgPool1d(pool_size))
         self.net = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool1d(pool_size)
         self.out_features = channels[-1] * pool_size
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -145,8 +148,75 @@ class TemporalEncoder(nn.Module):
         torch.Tensor
             Shape (B, out_features) — flattened feature vector.
         """
-        z = self.net(x)  # (B, C_last, pool_size)
+        z = self.net(x)  # (B, C_last, T_reduced)
+        z = self.pool(z)  # (B, C_last, pool_size)
         return z.view(z.size(0), -1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Temporal Self-Attention
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TemporalAttention(nn.Module):
+    """Multi-head self-attention over CNN feature map positions.
+
+    Operates on the encoder output *before* flattening, treating the
+    ``pool_size`` positions as a sequence of tokens.  This allows the
+    network to learn **which temporal regions** of the ground motion
+    contribute most to each story's drift.
+
+    Parameters
+    ----------
+    embed_dim : int
+        Dimension of each token (= last encoder channel count).
+    n_heads : int
+        Number of attention heads.
+    dropout : float
+        Dropout on attention weights.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        n_heads: int = 4,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.attn = nn.MultiheadAttention(embed_dim, n_heads, dropout=dropout, batch_first=True)
+        self.norm = nn.LayerNorm(embed_dim)
+        self.ff = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 2),
+            nn.GELU(),
+            nn.Linear(embed_dim * 2, embed_dim),
+        )
+        self.norm2 = nn.LayerNorm(embed_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Shape (B, C, T) — CNN encoder output before flattening.
+
+        Returns
+        -------
+        torch.Tensor
+            Shape (B, C, T) — attention-refined feature map.
+        """
+        # (B, C, T) → (B, T, C) for attention
+        x_t = x.transpose(1, 2)
+
+        # Multi-head self-attention with residual
+        attn_out, _ = self.attn(x_t, x_t, x_t)
+        x_t = self.norm(x_t + attn_out)
+
+        # Feed-forward with residual
+        x_t = self.norm2(x_t + self.ff(x_t))
+
+        # (B, T, C) → (B, C, T)
+        return x_t.transpose(1, 2)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -232,8 +302,21 @@ class HybridPINN(nn.Module):
             pool_size=self.config.pool_size,
         )
 
+        # Optional temporal self-attention between encoder and head
+        # v1.6: Attention now preserves sequence length, pooling happens AFTER attention
+        self.attention: TemporalAttention | None = None
+        if self.config.use_attention:
+            self.attention = TemporalAttention(
+                embed_dim=self.config.enc_channels[-1],
+                n_heads=self.config.attn_heads,
+                dropout=self.config.attn_dropout,
+            )
+
+        # Head input features is ALWAYS C * pool_size (whether attention is used or not)
+        head_in_features = self.encoder.out_features  # C * pool_size
+
         self.head = RegressionHead(
-            in_features=self.encoder.out_features,
+            in_features=head_in_features,
             fc_dims=self.config.fc_dims,
             n_outputs=self.config.n_stories,
             dropout=self.config.dropout,
@@ -270,7 +353,18 @@ class HybridPINN(nn.Module):
         torch.Tensor
             Shape (B, n_stories) — predicted inter-story drift ratio per story.
         """
-        z = self.encoder(x)
+        if self.attention is not None:
+            # 1. Feature extraction
+            z = self.encoder.net(x)  # (B, C, T_reduced)
+            # 2. Temporal Attention
+            z = self.attention(z)  # (B, C, T_reduced)
+            # 3. Pooling
+            z = self.encoder.pool(z)  # (B, C, pool_size)
+            # 4. Flatten
+            z = z.reshape(z.size(0), -1)
+        else:
+            # Standard path: features -> pool -> flatten
+            z = self.encoder(x)  # (B, C * pool_size)
         return self.head(z)
 
     def count_parameters(self) -> int:

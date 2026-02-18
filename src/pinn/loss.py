@@ -71,7 +71,11 @@ class LossWeights:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def data_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+def data_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    story_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
     """MSE between predicted and target IDR.
 
     Parameters
@@ -80,12 +84,20 @@ def data_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         Predicted IDR, shape (B, n_stories) or (B, n_stories, T).
     target : torch.Tensor
         Ground-truth IDR from OpenSeesPy, same shape as *pred*.
+    story_weights : torch.Tensor or None
+        Per-story importance weights, shape (n_stories,). Uses
+        inverse-variance weighting so stories with smaller drift
+        magnitudes receive higher weight. If None, falls back to
+        uniform MSE.
 
     Returns
     -------
     torch.Tensor
-        Scalar MSE loss.
+        Scalar (weighted) MSE loss.
     """
+    if story_weights is not None:
+        # Weighted MSE: w_i * (pred_i - target_i)^2
+        return (story_weights * (pred - target) ** 2).mean()
     return nn.functional.mse_loss(pred, target)
 
 
@@ -245,14 +257,24 @@ class HybridPINNLoss(nn.Module):
     ... )
     """
 
-    def __init__(self, weights: LossWeights | None = None) -> None:
+    def __init__(
+        self,
+        weights: LossWeights | None = None,
+        story_weights: torch.Tensor | None = None,
+    ) -> None:
         super().__init__()
         self.w = weights or LossWeights()
+        # Per-story inverse-variance weights for data_loss
+        if story_weights is not None:
+            self.register_buffer("story_weights", story_weights)
+        else:
+            self.story_weights = None
         logger.info(
-            "HybridPINNLoss: λ_data=%.3f, λ_phys=%.3f, λ_bc=%.4f",
+            "HybridPINNLoss: λ_data=%.3f, λ_phys=%.3f, λ_bc=%.4f, story_weights=%s",
             self.w.lambda_data,
             self.w.lambda_phys,
             self.w.lambda_bc,
+            "enabled" if story_weights is not None else "disabled",
         )
 
     def forward(
@@ -293,7 +315,7 @@ class HybridPINNLoss(nn.Module):
         components: dict[str, torch.Tensor] = {}
 
         # ── L_data ─────────────────────────────────────────────────────
-        l_data = data_loss(pred, target)
+        l_data = data_loss(pred, target, story_weights=self.story_weights)
         components["L_data"] = l_data
         total = self.w.lambda_data * l_data
 

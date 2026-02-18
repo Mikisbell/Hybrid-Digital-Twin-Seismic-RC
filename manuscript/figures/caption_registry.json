@@ -82,5 +82,68 @@
     "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
     "label": "error_distribution",
     "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "loss_curves.png",
+    "number": 1,
+    "caption": "Training and validation loss convergence for the HybridPINN model. Best validation loss (0.3090) reached at epoch 17. Training used AdamW optimizer with cosine annealing warm restarts.",
+    "label": "loss_curves",
+    "path": "manuscript/figures/loss_curves.png"
+  },
+  {
+    "figure": "pred_vs_actual.png",
+    "number": 2,
+    "caption": "Predicted vs. actual peak inter-story drift ratio (IDR) for each story on the held-out test set (N=760). Overall RMSE = 0.856%, R² = 0.772.",
+    "label": "pred_vs_actual",
+    "path": "manuscript/figures/pred_vs_actual.png"
+  },
+  {
+    "figure": "error_distribution.png",
+    "number": 3,
+    "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
+    "label": "error_distribution",
+    "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "loss_curves.png",
+    "number": 1,
+    "caption": "Training and validation loss convergence for the HybridPINN model. Best validation loss (0.4297) reached at epoch 89. Training used AdamW optimizer with cosine annealing warm restarts.",
+    "label": "loss_curves",
+    "path": "manuscript/figures/loss_curves.png"
+  },
+  {
+    "figure": "pred_vs_actual.png",
+    "number": 2,
+    "caption": "Predicted vs. actual peak inter-story drift ratio (IDR) for each story on the held-out test set (N=760). Overall RMSE = 0.924%, R² = 0.734.",
+    "label": "pred_vs_actual",
+    "path": "manuscript/figures/pred_vs_actual.png"
+  },
+  {
+    "figure": "error_distribution.png",
+    "number": 3,
+    "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
+    "label": "error_distribution",
+    "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "loss_curves.png",
+    "number": 1,
+    "caption": "Training and validation loss convergence for the HybridPINN model. Best validation loss (0.3987) reached at epoch 28. Training used AdamW optimizer with cosine annealing warm restarts.",
+    "label": "loss_curves",
+    "path": "manuscript/figures/loss_curves.png"
+  },
+  {
+    "figure": "pred_vs_actual.png",
+    "number": 2,
+    "caption": "Predicted vs. actual peak inter-story drift ratio (IDR) for each story on the held-out test set (N=760). Overall RMSE = 0.834%, R² = 0.783.",
+    "label": "pred_vs_actual",
+    "path": "manuscript/figures/pred_vs_actual.png"
+  },
+  {
+    "figure": "error_distribution.png",
+    "number": 3,
+    "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
+    "label": "error_distribution",
+    "path": "manuscript/figures/error_distribution.png"
   }
 ]
