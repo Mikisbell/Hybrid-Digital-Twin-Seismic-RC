@@ -33,7 +33,7 @@ jobs:
         run: |
           # Analyze which files changed to auto-categorize the update
           CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "initial")
-          
+
           if echo "$CHANGED_FILES" | grep -q "^src/opensees_analysis/"; then
             echo "category=Simulation Layer" >> $GITHUB_OUTPUT
             echo "phase=Methods" >> $GITHUB_OUTPUT

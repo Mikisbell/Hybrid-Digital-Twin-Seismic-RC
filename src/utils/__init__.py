@@ -6,7 +6,7 @@ Modules:
     figure_manager - HRPUB-compliant figure saving and caption management
 """
 
-from src.utils.sync_results import NotionResearchLogger
 from src.utils.figure_manager import FigureManager
+from src.utils.sync_results import NotionResearchLogger
 
 __all__ = ["NotionResearchLogger", "FigureManager"]

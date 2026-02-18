@@ -24,11 +24,9 @@ Author: Mikisbell
 Project: Hybrid Digital Twin for Seismic RC Buildings
 """
 
-import os
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -92,7 +90,7 @@ class FigureManager:
         self,
         fig: matplotlib.figure.Figure,
         caption: str = "",
-        label: Optional[str] = None,
+        label: str | None = None,
         tight: bool = True,
     ) -> Path:
         """
@@ -118,10 +116,7 @@ class FigureManager:
             fig.tight_layout()
 
         # Build filename
-        if label:
-            filename = f"{label}.{self.fmt}"
-        else:
-            filename = f"Figure_{self._counter}.{self.fmt}"
+        filename = f"{label}.{self.fmt}" if label else f"Figure_{self._counter}.{self.fmt}"
 
         filepath = self.output_dir / filename
 
@@ -163,14 +158,14 @@ class FigureManager:
             n = entry["number"]
             cap = entry["caption"]
             lines.append(f"**Figure {n}.** {cap}\n")
-        
+
         md_text = "\n".join(lines)
-        
+
         # Also save to file
         md_path = self.output_dir / "figure_captions.md"
         md_path.write_text(md_text, encoding="utf-8")
         logger.info(f"Caption list exported to {md_path}")
-        
+
         return md_text
 
     def export_captions_plain(self) -> str:
@@ -189,23 +184,25 @@ class FigureManager:
     # -------------------------------------------------------------------
     def _apply_journal_style(self):
         """Set matplotlib rcParams for journal-quality figures."""
-        plt.rcParams.update({
-            "figure.figsize": self.figsize,
-            "figure.dpi": self.dpi,
-            "font.size": self.font_size,
-            "font.family": "serif",
-            "axes.labelsize": self.font_size,
-            "axes.titlesize": self.font_size + 1,
-            "xtick.labelsize": self.font_size - 1,
-            "ytick.labelsize": self.font_size - 1,
-            "legend.fontsize": self.font_size - 1,
-            "axes.linewidth": 0.8,
-            "lines.linewidth": 1.2,
-            "lines.markersize": 4,
-            "savefig.dpi": self.dpi,
-            "savefig.bbox": "tight",
-            "savefig.facecolor": "white",
-        })
+        plt.rcParams.update(
+            {
+                "figure.figsize": self.figsize,
+                "figure.dpi": self.dpi,
+                "font.size": self.font_size,
+                "font.family": "serif",
+                "axes.labelsize": self.font_size,
+                "axes.titlesize": self.font_size + 1,
+                "xtick.labelsize": self.font_size - 1,
+                "ytick.labelsize": self.font_size - 1,
+                "legend.fontsize": self.font_size - 1,
+                "axes.linewidth": 0.8,
+                "lines.linewidth": 1.2,
+                "lines.markersize": 4,
+                "savefig.dpi": self.dpi,
+                "savefig.bbox": "tight",
+                "savefig.facecolor": "white",
+            }
+        )
 
     # -------------------------------------------------------------------
     # Internal: auto-detect next figure index
@@ -230,7 +227,7 @@ class FigureManager:
     def _load_caption_registry(self) -> list[dict]:
         registry_path = self.output_dir / "caption_registry.json"
         if registry_path.exists():
-            with open(registry_path, "r", encoding="utf-8") as f:
+            with open(registry_path, encoding="utf-8") as f:
                 return json.load(f)
         return []
 

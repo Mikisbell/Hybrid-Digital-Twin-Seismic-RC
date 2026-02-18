@@ -328,7 +328,7 @@ class HybridPINN(nn.Module):
 
 def build_pinn(
     seq_len: int = 2048,
-    n_stories: int = 5,
+    n_stories: int = 3,
     dropout: float = 0.05,
 ) -> HybridPINN:
     """Build a HybridPINN with sensible defaults.
