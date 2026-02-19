@@ -319,6 +319,8 @@ class PINNTrainer:
                 physics_kwargs["accel_response"] = batch[3].to(self.device)
                 physics_kwargs["vel_response"] = batch[4].to(self.device)
                 physics_kwargs["ground_accel"] = batch[5].to(self.device)
+            if len(batch) >= 7:
+                physics_kwargs["dt"] = batch[6].to(self.device)
 
             self.optimiser.zero_grad()
             pred = self.model(x)
@@ -362,6 +364,8 @@ class PINNTrainer:
                 physics_kwargs["accel_response"] = batch[3].to(self.device)
                 physics_kwargs["vel_response"] = batch[4].to(self.device)
                 physics_kwargs["ground_accel"] = batch[5].to(self.device)
+            if len(batch) >= 7:
+                physics_kwargs["dt"] = batch[6].to(self.device)
 
             pred = self.model(x)
             loss, _ = self.loss_fn(pred, y, **physics_kwargs)
@@ -527,6 +531,8 @@ def create_loaders(
             tensors.append(split_data["vel_response"])
         if "ground_accel" in split_data:
             tensors.append(split_data["ground_accel"])
+        if "dt" in split_data:
+            tensors.append(split_data["dt"])
 
         return TensorDataset(*tensors)
 

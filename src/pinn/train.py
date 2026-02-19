@@ -76,6 +76,11 @@ def main() -> None:
     parser.add_argument(
         "--n-stories", type=int, default=5, help="Number of building stories (output dim)"
     )
+    parser.add_argument("--output-sequence", action="store_true", help="Predict full time history")
+    parser.add_argument(
+        "--experiment-name", type=str, default="pinn_experiment", help="Experiment name for logging"
+    )
+
     args = parser.parse_args()
 
     level = logging.DEBUG if args.verbose else logging.INFO
@@ -121,7 +126,11 @@ def main() -> None:
     train_loader, val_loader, test_loader = create_loaders(data, batch_size=args.batch_size)
 
     # Build model
-    model_cfg = PINNConfig(seq_len=args.seq_len, n_stories=args.n_stories)
+    model_cfg = PINNConfig(
+        seq_len=args.seq_len,
+        n_stories=args.n_stories,
+        output_sequence=args.output_sequence,
+    )
     model = HybridPINN(model_cfg)
     logger.info("Model: %d parameters", model.count_parameters())
     # logger.info("\n%s", model.summary())

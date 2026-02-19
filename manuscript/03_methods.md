@@ -4,35 +4,14 @@
 <!-- CRITICAL: HRPUB requires complete methodology description including
      data processing, statistical tests, and computational procedures. -->
 
-## 3.1 Structural Model (OpenSeesPy)
+## 3.1 Parametric FEM Reference Model
 
-### 3.1.1 Geometry and Loading
+The proposed framework is built upon a high-fidelity nonlinear finite element model (FEM) developed in OpenSeesPy. Unlike traditional surrogate models, this system is fully parametric, allowing the generation of training data for $N$-story reinforced concrete (RC) frames by varying geometric and material properties. For the final validation, a 10-story frame ($N=10$) is utilized to assess the model's capability to capture higher-mode effects under real seismic excitations from the PEER NGA-West2 database.
 
-A parametric simulation framework was developed capable of generating N-story, M-bay RC frame models. Default configuration:
-
-- N = 5 stories, M = 3 bays (configurable via `FactoryConfig`)
-- Story height: 3.0 m (typical), 3.5 m (first story)
-- Bay width: 5.0 m
-- Dead load: 25 kN/m², Live load: 2.0 kN/m² (per ACI 318-19)
-
-### 3.1.2 Material Models
-
-| Material | Model | Key Parameters |
-|----------|-------|----------------|
-| Concrete (confined) | Concrete02 | f'c = 28 MPa, εc0 = 0.002, εcu = 0.006 |
-| Concrete (unconfined) | Concrete02 | f'c = 28 MPa, εc0 = 0.002, εcu = 0.004 |
-| Reinforcing steel | Steel02 | fy = 420 MPa, E = 200 GPa, b = 0.01 |
-
-### 3.1.3 Element Formulation
-
-- `forceBeamColumn` with fiber-section discretization
-- 5 Gauss-Lobatto integration points per element
-- P-Delta geometric transformation
-
-### 3.1.4 Damping
-
-- Rayleigh damping: ξ = 5% for modes 1 and 3
-- Mass-proportional and stiffness-proportional coefficients
+The reference model specifically employs:
+1.  **Fiber Sections**: Distributed plasticity with `Concrete02` (Mander confinement) and `Steel02` (Giuffré-Menegotto-Pinto).
+2.  **Element Formulation**: Displacement-based beam-column elements with P-Delta geometric nonlinearity.
+3.  **Variable Geometry**: Column cross-sections ($700^2 \to 500^2$ mm) and reinforcement ratios taper along the height to simulate realistic design practices.
 
 ## 3.2 Ground Motion Selection (PEER NGA-West2)
 
@@ -81,143 +60,45 @@ These techniques transform the 100 base records into approximately
 for the PINN while capturing the aleatory variability inherent in seismic
 ground motions across magnitudes, distances, and site conditions.
 
-## 3.3 Data Processing Pipeline
+## 3.3 Seq2Seq PINN Architecture (v2.0)
 
-```
-Raw NLTHA Output → Feature Extraction → Normalization → Train/Val/Test Split
-      │                    │                  │                │
-  Time series         IDR, PFA,          Min-Max or        70/15/15
-  (disp, accel,       Sa, Sd,           StandardScaler
-   force, drift)      Arias intensity
-```
+To overcome the limitations of scalar regression (v1.0) in predicting upper-story responses, we transition to a **Sequence-to-Sequence (Seq2Seq)** architecture. The model consists of:
 
-### 3.3.1 Feature Engineering
+1.  **Temporal Encoder**: A 1D-CNN backbone coupled with Multi-Head Self-Attention layers to extract deep temporal features from the input ground acceleration $\ddot{u}_g(t)$.
+2.  **History Decoder**: A dense output head that reconstructs the full displacement time-history $\mathbf{u}(t) \in \mathbb{R}^{N \times T}$ for all stories simultaneously.
 
-- Input features: Ground motion intensity measures (PGA, PGV, Sa(T1), Arias)
-- Output targets: Maximum inter-story drift ratio per story
-- Temporal features: Acceleration time series (windowed)
+By predicting the complete time-series, the network is forced to maintain temporal phase consistency, which is critical for resolving high-frequency oscillations in upper levels (e.g., Story 3 and above).
 
-### 3.3.2 Statistical Validation
+**Table 1.** Hybrid-PINN v2.0 architecture specification. $B$: Batch size, $N$: Stories (5).
 
-- Kolmogorov-Smirnov test for distribution normality
-- Pearson correlation matrix for feature selection
-- Cross-validation: 5-fold stratified by intensity level
+| Layer | Configuration | Output Shape |
+|-------|---------------|--------------|
+| *Input* | Ground acceleration $\ddot{u}_g(t)$ | $(B, 1, 2048)$ |
+| Conv Block 1 | $1 \to 32$ channels, $k{=}7$, $s{=}2$ | $(B, 32, 1024)$ |
+| Conv Block 2 | $32 \to 64$ channels, $k{=}5$, $s{=}2$ | $(B, 64, 512)$ |
+| Conv Block 3 | $64 \to 128$ channels, $k{=}3$, $s{=}2$ | $(B, 128, 256)$ |
+| Upsample | Interpolate to original length $T$ | $(B, 128, 2048)$ |
+| Projection | Linear $128 \to 32$ | $(B, 32, 2048)$ |
+| **Output Head** | **Linear $32 \to N$ (applied per step)** | **$(B, 5, 2048)$** |
 
-## 3.4 Physics-Informed Neural Network (PINN)
+## 3.4 Kinematic-Informed Regularization
 
-The Hybrid-PINN architecture is designed as a temporal encoder followed by a
-regression head.  Rather than embedding physics directly into the network
-topology, the physics constraint is enforced through a composite loss function
-that penalizes violations of the equation of motion — an approach consistent
-with the foundational PINN framework of Raissi et al. [3].  The complete model
-contains **603,653 trainable parameters**, implemented in PyTorch [13] and
-available in the project repository (`src/pinn/model.py`).
+The "Hybrid" nature of the Digital Twin arises from a custom loss function that enforces the Equation of Motion (EoM) during training. We adopt a **Teacher Forcing** strategy for the internal forces $\mathbf{f}_{int}$, regularizing the predicted kinematics:
 
-### 3.4.1 Architecture
+$$\mathcal{L}_{reg} = \| \mathbf{M}\ddot{\mathbf{u}}_{pred} + \mathbf{C}\dot{\mathbf{u}}_{pred} + \mathbf{f}_{int}(\mathbf{u}_{true}) + \mathbf{M}\boldsymbol{\iota}\ddot{u}_g \|^2$$
 
-The network comprises two sequential stages: (i) a one-dimensional
-convolutional neural network (1D-CNN) encoder that extracts temporal features
-from raw ground-acceleration time series, and (ii) a fully connected (FC)
-regression head that maps extracted features to inter-story drift ratio (IDR)
-predictions for each of the five stories.
+Where $\ddot{\mathbf{u}}_{pred}$ and $\dot{\mathbf{u}}_{pred}$ are computed via **differentiable finite differences** within the PyTorch computational graph. This formulation acts as a physics-based low-pass filter, penalizing non-physical smoothing and ensuring the Digital Twin remains a faithful emulator of the FEM's dynamic behavior.
 
-**Temporal Encoder (1D-CNN).**  Three convolutional blocks progressively
-increase the channel depth while halving the temporal resolution through
-strided convolutions.  Each block consists of a `Conv1d` layer, batch
-normalization (BN), and the SiLU activation function (Swish with $\beta=1$)
-[9].  The encoder terminates with an adaptive average pooling layer that
-produces a fixed-length feature vector regardless of input sequence length.
+### 3.4.1 Loss Components
+The total loss $\mathcal{L}_{total}$ integrates data fidelity, physics regularization, and boundary conditions:
 
-**Regression Head (FC).**  Four hidden layers with decreasing dimensionality
-($256 \to 128 \to 64 \to 32$) map the encoded features to the five-story IDR
-output.  SiLU activation is applied after each hidden layer.  Dropout ($p=0.05$)
-is applied after the first two wider layers to mitigate overfitting.
+$$\mathcal{L}_{total} = \lambda_d \mathcal{L}_{data} + \lambda_p \mathcal{L}_{reg} + \lambda_b \mathcal{L}_{bc}$$
 
-**Weight Initialization.**  All convolutional and linear layers use Kaiming
-(He) normal initialization [14], which accounts for the nonlinear activation and
-prevents gradient vanishing in early training epochs.  Batch normalization
-parameters are initialized to unity (weight) and zero (bias).
+1.  **Data Loss ($\mathcal{L}_{data}$)**: MSE of displacement histories $\mathbf{u}(t)$.
+2.  **Physics Loss ($\mathcal{L}_{reg}$)**: The kinematic residual defined above.
+3.  **Boundary Loss ($\mathcal{L}_{bc}$)**: Enforcing zero initial displacement and velocity.
 
-The complete layer-by-layer specification is presented in Table 1.
-
-**Table 1.** Hybrid-PINN architecture specification.  $B$ denotes the batch
-dimension; $k$, $s$, $p$ denote kernel size, stride, and padding, respectively.
-
-| # | Layer | Configuration | Output Shape |
-|---|-------|---------------|--------------|
-| — | *Input* | Ground acceleration time series | $(B, 1, 2048)$ |
-| 1 | Conv1d + BN + SiLU | $1 \to 32$ channels, $k{=}7$, $s{=}2$, $p{=}3$ | $(B, 32, 1024)$ |
-| 2 | Conv1d + BN + SiLU | $32 \to 64$ channels, $k{=}5$, $s{=}2$, $p{=}2$ | $(B, 64, 512)$ |
-| 3 | Conv1d + BN + SiLU | $64 \to 128$ channels, $k{=}3$, $s{=}2$, $p{=}1$ | $(B, 128, 256)$ |
-| 4 | AdaptiveAvgPool1d | Output length = 16 | $(B, 128, 16)$ |
-| — | *Flatten* | $128 \times 16 = 2048$ | $(B, 2048)$ |
-| 5 | Linear + SiLU + Dropout(0.05) | $2048 \to 256$ | $(B, 256)$ |
-| 6 | Linear + SiLU + Dropout(0.05) | $256 \to 128$ | $(B, 128)$ |
-| 7 | Linear + SiLU | $128 \to 64$ | $(B, 64)$ |
-| 8 | Linear + SiLU | $64 \to 32$ | $(B, 32)$ |
-| 9 | Linear (output) | $32 \to 5$ | $(B, 5)$ |
-| — | **Total trainable parameters** | | **603,653** |
-
-The choice of SiLU (Swish) over ReLU is deliberate: as a $C^1$-continuous
-function, SiLU produces well-defined higher-order gradients required by the
-physics-loss term, where the equation of motion involves second-order
-derivatives ($\ddot{u}$) [9].
-
-### 3.4.2 Hybrid Loss Function
-
-The total loss function embeds the equation of motion as a physics constraint,
-following the PINN paradigm [3]:
-
-$$\mathcal{L}_{total} = \lambda_d \, \mathcal{L}_{data} + \lambda_p \, \mathcal{L}_{physics} + \lambda_b \, \mathcal{L}_{bc} \tag{1}$$
-
-Each component is defined below.
-
-**Data fidelity loss ($\mathcal{L}_{data}$).**  The mean squared error (MSE)
-between the network-predicted IDR ($\hat{\theta}_i$) and the OpenSeesPy-simulated
-IDR ($\theta_i$) across all stories and samples:
-
-$$\mathcal{L}_{data} = \frac{1}{N \cdot n_s} \sum_{j=1}^{N} \sum_{i=1}^{n_s} \left( \hat{\theta}_{i}^{(j)} - \theta_{i}^{(j)} \right)^2 \tag{2}$$
-
-where $N$ is the number of samples and $n_s = 5$ is the number of stories.
-
-**Physics loss ($\mathcal{L}_{physics}$).**  The $L_2$-norm residual of the
-multi-degree-of-freedom equation of motion:
-
-$$\mathcal{L}_{physics} = \frac{1}{N \cdot n_s \cdot T} \sum \left\| \mathbf{M}\ddot{\mathbf{u}} + \mathbf{C}\dot{\mathbf{u}} + \mathbf{f}_{int}(\mathbf{u}, \dot{\mathbf{u}}) + \mathbf{M}\boldsymbol{\iota}\ddot{u}_g \right\|^2 \tag{3}$$
-
-where $\mathbf{M}$ and $\mathbf{C}$ are the lumped mass and Rayleigh damping
-matrices (constant throughout the analysis), $\boldsymbol{\iota}$ is the
-rigid-diaphragm influence vector, $\ddot{u}_g$ is the ground acceleration, and
-$T$ represents the number of time steps.
-
-**Critical distinction: nonlinear restoring force.**  The term
-$\mathbf{f}_{int}(\mathbf{u}, \dot{\mathbf{u}})$ represents the *nonlinear*
-restoring force vector recorded by OpenSeesPy at every time step during the
-NLTHA.  Unlike a linear stiffness formulation ($\mathbf{K}\mathbf{u}$), this
-quantity implicitly encodes the full hysteretic behavior of the fiber-section
-elements: concrete cracking and crushing (Concrete02, Mander et al. [7]),
-steel yielding and strain hardening (Steel02, Menegotto-Pinto [8]), and cyclic
-degradation under repeated loading.  The use of $\mathbf{f}_{int}$ rather than
-$\mathbf{K}\mathbf{u}$ is essential for capturing the nonlinear response of RC
-structures and constitutes the **"Hybrid"** nature of the proposed Digital Twin —
-the neural network learns from data while being constrained by the true
-nonlinear physics of the finite-element model.
-
-**Boundary/initial condition loss ($\mathcal{L}_{bc}$).**  Enforces that the
-building starts from rest:
-
-$$\mathcal{L}_{bc} = \frac{1}{N \cdot n_s} \sum_{j=1}^{N} \sum_{i=1}^{n_s} \left[ u_i^{(j)}(0)^2 + \dot{u}_i^{(j)}(0)^2 \right] \tag{4}$$
-
-**Loss weights.**  The default weights ($\lambda_d = 1.0$, $\lambda_p = 0.1$,
-$\lambda_b = 0.01$) were selected to balance the relative magnitudes of each
-component.  Additionally, an *adaptive weight scheduling* mechanism based on
-gradient-norm balancing [15] is available: at each epoch, the weights $\lambda_p$
-and $\lambda_b$ are adjusted via exponential moving average (EMA, $\alpha = 0.9$)
-so that the gradient contributions from all three loss components remain
-comparable in magnitude, preventing any single term from dominating the
-optimization landscape.
-
-### 3.4.3 Training Protocol
+## 3.5 Training Protocol
 
 All training hyperparameters are summarized in Table 2 and are fixed throughout
 this study to ensure full reproducibility per HRPUB requirements.
@@ -229,42 +110,12 @@ this study to ensure full reproducibility per HRPUB requirements.
 | Optimizer | AdamW [11] | Decoupled weight decay; superior generalization |
 | Learning rate ($\eta$) | $1 \times 10^{-3}$ | Standard for Adam-family optimizers |
 | Weight decay | $1 \times 10^{-4}$ | L2 regularization for generalization |
-| LR scheduler | CosineAnnealingWarmRestarts [12] | Avoids premature convergence to local minima |
-| $T_0$ (initial period) | 50 epochs | First cosine cycle length |
-| $T_{mult}$ | 2 | Doubling period after each restart |
-| $\eta_{min}$ | $1 \times 10^{-6}$ | Minimum learning rate floor |
-| Maximum epochs | 500 | Upper bound (early stopping typically triggers earlier) |
-| Batch size | 64 | Balances gradient estimation and GPU memory |
-| Gradient clipping | Max norm = 1.0 | Prevents gradient explosion in physics loss |
-| Early stopping patience | 50 epochs | Monitors validation loss; prevents overfitting |
-| Random seed | 42 | Ensures deterministic initialization |
-| Data split | 70% / 15% / 15% | Train / Validation / Test (stratified) |
+| Scheduler | CosineAnnealingWarmRestarts | Avoids premature convergence |
+| Max epochs | 500 | Upper bound (early stopping) |
+| Batch size | 64 | Balances gradient variance and memory |
+| Physics Weight $\lambda_p$ | 0.1 | Tuned to balance MSE and EoM residual |
 
-**Training procedure.**  The model is trained on 100 ground-motion events
-selected from the PEER NGA-West2 database (Section 3.2) and processed through
-the NLTHA pipeline via the Data Factory.  Each record produces a pair of
-(acceleration time series, per-story IDR) used as training input and target,
-respectively.  After data augmentation (Section 3.2.3), the effective training
-set comprises approximately 1,000–1,500 samples.  The physics loss additionally
-receives the structural matrices ($\mathbf{M}$, $\mathbf{C}$) and
-OpenSeesPy-recorded kinematics ($\ddot{\mathbf{u}}$, $\dot{\mathbf{u}}$,
-$\mathbf{f}_{int}$) at every time step.  The augmented dataset ensures
-statistical robustness by capturing the aleatory variability inherent in seismic
-ground motions across magnitudes ($M_w$ 6.0–7.5), distances ($R_{jb}$ 10–50 km),
-and site conditions ($V_{s30}$ 180–760 m/s, NEHRP classes C–D).
-
-**Early stopping** monitors the validation loss (computed on 15% of the dataset)
-and halts training when no improvement exceeding $\delta = 10^{-6}$ is observed
-for 50 consecutive epochs.  The best model checkpoint (lowest validation loss)
-is saved to `data/models/pinn_best.pt` and used for all subsequent evaluation
-and benchmarking.
-
-The three training modes supported by the framework are:
-1. **Data-only**: $\mathcal{L} = \mathcal{L}_{data}$ (pure supervised baseline).
-2. **Hybrid**: $\mathcal{L} = \lambda_d \mathcal{L}_{data} + \lambda_p \mathcal{L}_{physics} + \lambda_b \mathcal{L}_{bc}$ (default).
-3. **Adaptive**: Same as Hybrid with self-adaptive weight balancing [15].
-
-## 3.5 Benchmarking Protocol
+## 3.6 Benchmarking Protocol
 
 Real-time applicability requires inference latency ≤ 100 ms. The benchmarking
 script (`src/pinn/benchmark_latency.py`) measures:

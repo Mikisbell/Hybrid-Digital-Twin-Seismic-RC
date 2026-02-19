@@ -1,0 +1,21 @@
+{
+  "device": "cpu",
+  "seq_len": 2048,
+  "include_preprocessing": true,
+  "cold_start_ms": 104.136,
+  "preprocess_mean_ms": 0.141,
+  "preprocess_p95_ms": 0.237,
+  "warm_mean_ms": 0.988,
+  "warm_median_ms": 0.897,
+  "warm_std_ms": 0.38,
+  "warm_p95_ms": 1.555,
+  "warm_p99_ms": 2.742,
+  "n_iterations": 1000,
+  "batch_throughput": {
+    "1": 1313.3,
+    "8": 3221.8,
+    "32": 3627.8,
+    "128": 5318.7
+  },
+  "realtime_ok": true
+}

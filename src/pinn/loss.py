@@ -71,6 +71,52 @@ class LossWeights:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def compute_kinematics(
+    disp: torch.Tensor, dt: float | torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute velocity and acceleration via finite differences (differentiable).
+
+    Uses 2nd order central differences:
+    v_t = (u_{t+1} - u_{t-1}) / (2*dt)
+    a_t = (u_{t+1} - 2u_t + u_{t-1}) / dt^2
+
+    Parameters
+    ----------
+    disp : torch.Tensor
+        Displacement history, shape (B, N, T).
+    dt : float | torch.Tensor
+        Time step (s). If tensor, shape (B,) or (B, 1, 1).
+
+    Returns
+    -------
+    vel, accel : torch.Tensor
+        Computed kinematics, same shape as disp.
+        Boundaries are padded (replicated) to maintain length.
+    """
+    b, n, t = disp.shape
+
+    # Ensure dt is broadcastable: (B, 1, 1)
+    if isinstance(dt, torch.Tensor):
+        if dt.dim() == 1:
+            dt = dt.view(-1, 1, 1)
+        elif dt.dim() == 0:
+            dt = dt.view(1, 1, 1)
+
+    # Replicate padding to minimize boundary artifacts
+    # u_pad: (B, N, T+2)
+    padded = torch.nn.functional.pad(disp, (1, 1), mode="replicate")
+
+    # Velocity: (u_{t+1} - u_{t-1}) / 2dt
+    # Slicing: padded[2:] is u_{t+1}, padded[:-2] is u_{t-1}
+    vel = (padded[..., 2:] - padded[..., :-2]) / (2 * dt)
+
+    # Acceleration: (u_{t+1} - 2u_{t} + u_{t-1}) / dt^2
+    # Slicing: padded[1:-1] is u_{t}
+    acc = (padded[..., 2:] - 2 * padded[..., 1:-1] + padded[..., :-2]) / (dt**2)
+
+    return vel, acc
+
+
 def data_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
@@ -97,6 +143,12 @@ def data_loss(
     """
     if story_weights is not None:
         # Weighted MSE: w_i * (pred_i - target_i)^2
+        # Reshape for broadcasting: (1, N, 1) for sequence, or (1, N) for scalar
+        if pred.dim() == 3 and story_weights.dim() == 1:
+            story_weights = story_weights.view(1, -1, 1)
+        elif pred.dim() == 2 and story_weights.dim() == 1:
+            story_weights = story_weights.view(1, -1)
+
         return (story_weights * (pred - target) ** 2).mean()
     return nn.functional.mse_loss(pred, target)
 
@@ -145,8 +197,10 @@ def physics_loss(
 
     Returns
     -------
-    torch.Tensor
-        Scalar mean-squared residual of the EOM.
+    loss_scalar : torch.Tensor
+        Scalar mean-squared residual of the EOM (for backprop).
+    residuals_per_story : torch.Tensor
+        Mean-squared residual per story, shape (n_stories,).
     """
     n_stories = accel_response.shape[1]
 
@@ -188,10 +242,15 @@ def physics_loss(
         c_vel = torch.zeros_like(vel_response)
 
     # Residual: R = M·ü + C·u̇ + f_int + M·ι·üg
-    residual = m_accel + c_vel + f_int + m_ground
+    residual = m_accel + c_vel + f_int + m_ground  # (B, n_stories, T)
 
-    # Mean-squared residual
-    return (residual**2).mean()
+    # Mean-squared residual per story (average over Batch and Time)
+    # residual**2 -> (B, N, T)
+    # mean(dim=(0, 2)) -> (N,)
+    res_per_story = (residual**2).mean(dim=(0, 2))
+
+    # Scalar loss (mean over stories)
+    return res_per_story.mean(), res_per_story
 
 
 def boundary_condition_loss(
@@ -290,6 +349,7 @@ class HybridPINNLoss(nn.Module):
         influence_vector: torch.Tensor | None = None,
         pred_disp_t0: torch.Tensor | None = None,
         pred_vel_t0: torch.Tensor | None = None,
+        dt: float | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the composite loss.
 
@@ -304,6 +364,8 @@ class HybridPINNLoss(nn.Module):
             If None, physics loss is skipped (pure data mode).
         pred_disp_t0, pred_vel_t0 :
             Initial-condition predictions.  If None, BC loss is skipped.
+        dt : float
+            Time step for finite difference differentiation (v2.0).
 
         Returns
         -------
@@ -331,8 +393,34 @@ class HybridPINNLoss(nn.Module):
                 ground_accel,
             )
         )
+        # v2.0: If we have dt and pred is sequence, we can compute kinematics
+        if not has_physics and dt is not None and pred.dim() == 3:
+            # We assume pred IS displacement in v2.0
+            # We still need mass_matrix, f_int(from model?), ground_accel
+            # But f_int comes from OpenSees usually.
+            # If we don't have f_int, we can't compute full EOM unless we have a neural constitutive model.
+            # For Hybrid Twin, we assume f_int is provided (e.g. from a parallel OpenSees run or approximated).
+            # Wait, if we rely on OpenSees for f_int, we are coupled.
+            # If we assume linear K for now (or trained constitutive model), we could do it.
+            # For this implementation, we assume f_int IS provided effectively or we skip physics.
+            pass
+
         if has_physics:
-            l_phys = physics_loss(
+            # v2.0 Override: Compute kinematics from prediction if sequence mode
+            if dt is not None and pred.dim() == 3:
+                # pred is displacement (B, N, T)
+                vel_pred, accel_pred = compute_kinematics(pred, dt)
+                # Use these differentiable kinematics instead of pre-computed ones
+                accel_response = accel_pred
+                vel_response = vel_pred
+                # Note: f_int must still be provided externally or modelled.
+                # In strict Hybrid mode, f_int comes from the solver step?
+                # For training, if we have ground truth f_int, we use it.
+                # Ideally f_int should depend on u_pred, but that requires differentiable hysteresis.
+                # We will use the provided (ground truth) f_int as an approximation,
+                # or if this is 'Physics Guided', we effectively check consistency of (u_pred, f_int_true).
+
+            l_phys, l_phys_per_story = physics_loss(
                 mass_matrix=mass_matrix,  # type: ignore[arg-type]
                 damping_matrix=damping_matrix,  # type: ignore[arg-type]
                 accel_response=accel_response,  # type: ignore[arg-type]
@@ -342,6 +430,11 @@ class HybridPINNLoss(nn.Module):
                 influence_vector=influence_vector,
             )
             components["L_physics"] = l_phys
+
+            # Log per-story physics loss
+            for i, l_s in enumerate(l_phys_per_story):
+                components[f"L_phys_s{i + 1}"] = l_s
+
             total = total + self.w.lambda_phys * l_phys
         else:
             components["L_physics"] = torch.tensor(0.0, device=pred.device)

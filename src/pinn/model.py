@@ -84,6 +84,7 @@ class PINNConfig:
     use_attention: bool = True
     attn_heads: int = 4
     attn_dropout: float = 0.1
+    output_sequence: bool = False  # v2.0: Predict full time history (Seq2Seq)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -312,8 +313,13 @@ class HybridPINN(nn.Module):
                 dropout=self.config.attn_dropout,
             )
 
-        # Head input features is ALWAYS C * pool_size (whether attention is used or not)
-        head_in_features = self.encoder.out_features  # C * pool_size
+        # Head input features depends on output mode
+        if self.config.output_sequence:
+            # Seq2Seq: Head applied per time-step, so input is just C
+            head_in_features = self.config.enc_channels[-1]
+        else:
+            # Scalar: Input is flattened pooled vector (C * pool_size)
+            head_in_features = self.encoder.out_features
 
         self.head = RegressionHead(
             in_features=head_in_features,
@@ -353,19 +359,45 @@ class HybridPINN(nn.Module):
         torch.Tensor
             Shape (B, n_stories) — predicted inter-story drift ratio per story.
         """
-        if self.attention is not None:
-            # 1. Feature extraction
-            z = self.encoder.net(x)  # (B, C, T_reduced)
-            # 2. Temporal Attention
-            z = self.attention(z)  # (B, C, T_reduced)
-            # 3. Pooling
-            z = self.encoder.pool(z)  # (B, C, pool_size)
-            # 4. Flatten
-            z = z.reshape(z.size(0), -1)
+        if self.config.output_sequence:
+            # ── v2.0 Seq2Seq Mode ──────────────────────────────────────
+            # x: (B, 1, T) -> z: (B, C, T_reduced)
+            t_in = x.size(2)
+            z = self.encoder.net(x)
+
+            if self.attention is not None:
+                z = self.attention(z)  # (B, C, T_reduced)
+
+            # Upsample to original sequence length
+            z = nn.functional.interpolate(
+                z, size=t_in, mode="linear", align_corners=False
+            )  # (B, C, T)
+
+            # Prepare for per-step regression: (B, C, T) -> (B, T, C)
+            z = z.transpose(1, 2)
+
+            # Apply head (MLP) to each time step
+            # Linear accepts (B, *, H_in), acts on last dim
+            out = self.head(z)  # (B, T, N)
+
+            # (B, T, N) -> (B, N, T)
+            return out.transpose(1, 2)
+
         else:
-            # Standard path: features -> pool -> flatten
-            z = self.encoder(x)  # (B, C * pool_size)
-        return self.head(z)
+            # ── v1.6 Scalar Mode ───────────────────────────────────────
+            if self.attention is not None:
+                # 1. Feature extraction
+                z = self.encoder.net(x)  # (B, C, T_reduced)
+                # 2. Temporal Attention
+                z = self.attention(z)  # (B, C, T_reduced)
+                # 3. Pooling
+                z = self.encoder.pool(z)  # (B, C, pool_size)
+                # 4. Flatten
+                z = z.reshape(z.size(0), -1)
+            else:
+                # Standard path: features -> pool -> flatten
+                z = self.encoder(x)  # (B, C * pool_size)
+            return self.head(z)
 
     def count_parameters(self) -> int:
         """Return total number of trainable parameters."""

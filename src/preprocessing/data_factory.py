@@ -162,6 +162,7 @@ class FactoryConfig:
     n_stories: int = 5
     n_bays: int = 3
     n_workers: int = 1
+    limit: int = 0  # 0 = no limit
     seed: int = 42
 
 
@@ -1125,6 +1126,16 @@ class DataFactory:
 
         Rebuilds the model before each run for clean state.
         """
+        records = self.gm_records
+        if self.config.limit > 0:
+            logger.info("Limiting execution to first %d records", self.config.limit)
+            records = records[: self.config.limit]
+
+        if not records:
+            logger.warning("No records to process.")
+            return []
+
+        logger.info("Preparing NLTHA batch for %d records...", len(records))
         from functools import partial
 
         from src.opensees_analysis.nltha_runner import run_batch
@@ -1140,11 +1151,12 @@ class DataFactory:
         )
 
         return run_batch(
-            ground_motions=self.gm_records,
+            ground_motions=records,
             model_builder=builder,
             config=self.config.nltha_config,
             n_stories=self.config.n_stories,
             n_bays=self.config.n_bays,
+            n_workers=self.config.n_workers,
         )
 
     def _report_gm_stats(self) -> None:
@@ -1346,6 +1358,18 @@ def main() -> None:
         default=5,
         help="Number of building stories (default: 5)",
     )
+    parser.add_argument(
+        "--n-workers",
+        type=int,
+        default=1,
+        help="Number of parallel workers (default: 1)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Limit number of records (0 = no limit)",
+    )
     args = parser.parse_args()
 
     config = FactoryConfig(
@@ -1355,6 +1379,8 @@ def main() -> None:
         spectrum=DesignSpectrum(sds=args.sds, sd1=args.sd1),
         max_scale_factor=args.max_sf,
         n_stories=args.n_stories,
+        n_workers=args.n_workers,
+        limit=args.limit,
     )
 
     factory = DataFactory(config)

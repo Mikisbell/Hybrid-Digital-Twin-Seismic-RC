@@ -506,56 +506,115 @@ class NLTHARunner:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _worker_task(args: tuple) -> dict:
+    """Worker function for parallel NLTHA execution.
+
+    Must be top-level for multiprocessing pickling.
+    """
+    gm, model_builder, config, n_stories, n_bays = args
+
+    # Ensure clean state in worker process
+    if OPS_AVAILABLE:
+        ops.wipe()
+
+    # Rebuild model
+    model_builder()
+
+    # Run analysis
+    runner = NLTHARunner(n_stories=n_stories, n_bays=n_bays, config=config)
+    try:
+        result = runner.run(gm)
+    except Exception as exc:
+        logger.error("Worker failed for %s: %s", gm.name, exc)
+        result = {
+            "converged": False,
+            "error": str(exc),
+            "ground_motion": gm.name,
+            "max_drift": [0.0] * n_stories,
+            "peak_base_shear": 0.0,
+        }
+
+    # Cleanup
+    if OPS_AVAILABLE:
+        ops.wipe()
+
+    return result
+
+
 def run_batch(
     ground_motions: list[GroundMotionRecord],
     model_builder: callable,
     config: NLTHAConfig | None = None,
     n_stories: int = 5,
     n_bays: int = 3,
+    n_workers: int = 1,
 ) -> list[dict]:
-    """Run NLTHA for multiple ground motions.
-
-    Rebuilds the model between runs to ensure clean state.
+    """Run NLTHA for multiple ground motions (sequential or parallel).
 
     Parameters
     ----------
     ground_motions : list[GroundMotionRecord]
         List of ground motion records to analyze.
     model_builder : callable
-        Function that builds and prepares the model (must call build(),
-        apply_gravity(), setup_rayleigh_damping()).
+        Function that builds and prepares the model.
     config : NLTHAConfig, optional
         Analysis configuration.
     n_stories, n_bays : int
-        Frame dimensions for recorder setup.
+        Frame dimensions.
+    n_workers : int
+        Number of parallel workers (1 = sequential).
 
     Returns
     -------
     list[dict]
         Analysis results for each ground motion.
     """
+    import multiprocessing
+
     results = []
     total = len(ground_motions)
 
-    for i, gm in enumerate(ground_motions, 1):
-        logger.info("━" * 60)
-        logger.info("Batch run %d/%d: %s", i, total, gm.name)
-        logger.info("━" * 60)
+    if n_workers > 1:
+        logger.info("Starting parallel batch NLTHA with %d workers", n_workers)
 
-        # Rebuild model from scratch (clean state)
-        model_builder()
+        # Prepare task arguments
+        tasks = [(gm, model_builder, config, n_stories, n_bays) for gm in ground_motions]
 
-        runner = NLTHARunner(n_stories=n_stories, n_bays=n_bays, config=config)
-        result = runner.run(gm)
-        result["batch_index"] = i
-        result["batch_total"] = total
-        results.append(result)
+        # Execute in pool
+        with multiprocessing.Pool(processes=n_workers) as pool:
+            # imap_unordered is faster as we don't strictly need order,
+            # but we want to track progress. using imap to keep order is fine/easier for debugging logic
+            # or actually unordered is fine since we return full results dicts.
+            # let's use imap to be safe with pickling/iteration
+            for i, result in enumerate(pool.imap(_worker_task, tasks), 1):
+                result["batch_index"] = i
+                result["batch_total"] = total
+                results.append(result)
 
-        # Clean up
-        ops.wipe()
+                if i % 5 == 0 or i == total:
+                    logger.info("Batch progress: %d/%d completed", i, total)
+
+    else:
+        logger.info("Starting sequential batch NLTHA (1 worker)")
+        for i, gm in enumerate(ground_motions, 1):
+            logger.info("━" * 60)
+            logger.info("Batch run %d/%d: %s", i, total, gm.name)
+            logger.info("━" * 60)
+
+            # Rebuild model from scratch (clean state)
+            model_builder()
+
+            runner = NLTHARunner(n_stories=n_stories, n_bays=n_bays, config=config)
+            result = runner.run(gm)
+            result["batch_index"] = i
+            result["batch_total"] = total
+            results.append(result)
+
+            # Clean up
+            ops.wipe()
 
     # Summary
-    n_converged = sum(1 for r in results if r["converged"])
+    n_converged = sum(1 for r in results if r.get("converged", False))
     logger.info(
         "Batch complete: %d/%d converged (%.0f%%)",
         n_converged,

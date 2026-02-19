@@ -1,28 +1,25 @@
-# Hybrid Digital Twin for Seismic RC Buildings
+# Hybrid Digital Twin of the FEM for Parametric Seismic Response of N-Story RC Buildings
 
-Hybrid Digital Twin framework for real-time seismic damage prediction in RC buildings using OpenSeesPy and Physics-Informed Machine Learning (PIML). Developed for Engineering 4.0 research.
+Hybrid Digital Twin framework for accelerated surrogate modeling of nonlinear seismic response in RC buildings using OpenSeesPy and Physics-Informed Machine Learning (PIML).
 
 **Target Journal**: [Civil Engineering and Architecture — HRPUB](http://www.hrpub.org/journals/jour_info.php?id=48)
 
 ## Overview
 
 This framework combines:
-- **OpenSeesPy** [1]: Non-linear time history analysis (NLTHA) of 5-story RC frames per ACI 318-19 [5]
-- **Physics-Informed Neural Networks (PINNs)** [3]: Real-time structural damage prediction with physics constraints
-- **Digital Twin Technology** [4]: Synchronized physical-digital representation for resilience assessment
+- **OpenSeesPy** [1]: High-fidelity non-linear time history analysis (NLTHA) of N-story RC frames
+- **Physics-Informed Neural Networks (PINNs)** [3]: Accelerated surrogate modeling for Probabilistic Seismic Demand Analysis (PSDA)
+- **High-Fidelity FEM Emulation** [4]: Replacing computationally expensive FEA with real-time neural inference
 
-The system predicts inter-story drifts in real-time (≤ 100 ms inference), enabling proactive structural health monitoring and seismic risk assessment.
+The system emulates the full displacement time history $u(t)$ of the Finite Element Model (FEM), enabling rapid parametric studies without the computational cost of thousands of direct integrations.
 
-### Physics-Informed Loss Function
+### Kinematic-Informed Loss Function
 
 The PINN embeds the equation of motion as a regularization term in the loss:
 
-$$\mathcal{L}_{total} = \mathcal{L}_{data} + \lambda \left\| M\ddot{u} + C\dot{u} + Ku + M\iota\ddot{u}_g \right\|^2$$
+$$\mathcal{L}_{total} = \mathcal{L}_{data} + \lambda \left\| M\ddot{u}_{pred} + C\dot{u}_{pred} + f_{int}(u_{true}) + M\iota\ddot{u}_g \right\|^2$$
 
-Where the second term is the physics residual of the multi-degree-of-freedom system:
-- $M$, $C$, $K$ — mass, damping, and stiffness matrices
-- $\ddot{u}_g$ — ground acceleration input
-- $\lambda$ — physics regularization weight (tunable hyperparameter)
+Where $f_{int}(u_{true})$ acts as a kinematic guide (Teacher Forcing) from the FEM, filtering non-physical high-frequency noise.
 
 ## Project Structure
 

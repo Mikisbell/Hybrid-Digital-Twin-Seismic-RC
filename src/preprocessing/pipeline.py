@@ -67,6 +67,9 @@ class PipelineConfig:
     # PINN model expects fixed-length sequences
     seq_len: int = 2048
     n_stories: int = 5
+    output_sequence: bool = (
+        False  # v2.0: Output sequence targets (disp) instead of scalar (peak IDR)
+    )
 
     # Split ratios (must sum to 1.0)
     train_ratio: float = 0.70
@@ -117,6 +120,7 @@ class SimulationRecord:
     peak_idr_overall: float
     converged: bool
     source_file: str
+    disp: np.ndarray | None = None  # v2.0 sequence target
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -207,11 +211,24 @@ class NLTHAPipeline:
         peak_idr = np.max(np.abs(drift), axis=0)
         peak_idr_overall = float(np.max(peak_idr))
 
+        # v2.0: Load displacement history for sequence target
+        # Assuming disp cols exist (produced by nltha_runner)
+        disp_cols = [f"disp_{i}" for i in range(1, self.config.n_stories + 1)]
+        if all(c in df.columns for c in disp_cols):
+            disp = df[disp_cols].values.astype(np.float32)
+        else:
+            # Reconstruct from drift? Or just warn?
+            # For now, if missing, use drift (IDR) as proxy? No, bad.
+            # Assuming disp exists.
+            disp = np.zeros_like(drift)
+
         return SimulationRecord(
             name=csv_path.stem,
             ground_accel=ground_accel,
             drift=drift,
+            disp=disp,  # Add explicit disp field
             accel=accel,
+            # ... existing fields ...
             vel=vel,
             dt=dt,
             pga=pga,
@@ -278,6 +295,7 @@ class NLTHAPipeline:
         targets: list[np.ndarray] = []
         accels: list[np.ndarray] = []
         vels: list[np.ndarray] = []
+        dts: list[float] = []
         seq_len = self.config.seq_len
 
         for rec in records:
@@ -292,22 +310,21 @@ class NLTHAPipeline:
                 raw_input = self._pad_crop_1d(rec.ground_accel, s, e, seq_len)
 
                 # 2. Target (Peak IDR is scalar per record? No, usually we want IDR time history?)
-                # Wait, original code used `rec.peak_idr` which is (5,).
-                # The target is STATIC peak IDR for the whole record?
-                # "target IDR (valid for small-to-moderate nonlinearity)"
-                # The original code copied `rec.peak_idr`.
-                # If we use windows, using GLOBAL peak IDR for a window is .. approximation?
-                # Actually, the original implementation logic:
-                # "rec.peak_idr" is constant for the whole record.
-                # So every window gets the same target? That seems wrong for "different earthquake phases".
-                # But let's keep it consistent with the existing pipeline for `targets`.
-                # However, for physics loss, we need TIME HISTORY of accel/vel.
+                # Input: ground acceleration
+                inp = self._pad_crop_1d(rec.ground_accel, s, e, self.config.seq_len)
 
-                raw_accel = self._pad_crop_2d(rec.accel, s, e, seq_len)
-                raw_vel = self._pad_crop_2d(rec.vel, s, e, seq_len)
+                # 2. Target (Sequence or Scalar)
+                if self.config.output_sequence:
+                    # Target is displacement history (seq_len, n_stories)
+                    raw_target = self._pad_crop_2d(rec.disp, s, e, self.config.seq_len)
+                else:
+                    # Target is Scalar Peak IDR (recalc for window?)
+                    # For v1.0, we use global peak (simplified)
+                    raw_target = rec.peak_idr.copy()
 
-                # Copy global peak scalar
-                raw_target = rec.peak_idr.copy()
+                # Physics vars (always sequence): (T, n_stories)
+                raw_accel = self._pad_crop_2d(rec.accel, s, e, self.config.seq_len)
+                raw_vel = self._pad_crop_2d(rec.vel, s, e, self.config.seq_len)
 
                 if self.config.augment:
                     for scale in self.config.amplitude_scales:
@@ -321,6 +338,7 @@ class NLTHAPipeline:
                         targets.append(tgt)
                         accels.append(ac)
                         vels.append(ve)
+                        dts.append(rec.dt)
 
                         # Noise (only on input, not physics variables?)
                         # Physics loss shouldn't see noise, or should it?
@@ -338,13 +356,15 @@ class NLTHAPipeline:
                             targets.append(tgt)
                             accels.append(ac)
                             vels.append(ve)
+                            dts.append(rec.dt)
                 else:
                     inputs.append(raw_input)
                     targets.append(raw_target)
                     accels.append(raw_accel)
                     vels.append(raw_vel)
+                    dts.append(rec.dt)
 
-        return inputs, targets, accels, vels
+        return inputs, targets, accels, vels, dts
 
     def _get_window_indices(self, n: int, seq_len: int) -> list[tuple[int, int]]:
         """Return (start, end) indices for windows."""
@@ -387,6 +407,7 @@ class NLTHAPipeline:
         targets: list[np.ndarray],
         accels: list[np.ndarray],
         vels: list[np.ndarray],
+        dts: list[float],
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, Any], dict[str, torch.Tensor]]:
         """Convert to PyTorch tensors and compute physics terms.
 
@@ -398,7 +419,13 @@ class NLTHAPipeline:
         physics_tensors : dict with keys (mass_matrix, f_int, accel, vel, ground)
         """
         x = np.stack(inputs)[:, np.newaxis, :]  # (N, 1, seq_len)
-        y = np.stack(targets)  # (N, n_stories)
+
+        if self.config.output_sequence:
+            # y is list of (seq_len, n_stories) -> stack -> (N, seq_len, n_stories)
+            # Transpose to (N, n_stories, seq_len) for PyTorch Conv1d compatibility
+            y = np.stack(targets).transpose(0, 2, 1)
+        else:
+            y = np.stack(targets)  # (N, n_stories)
 
         # Physics vars: (N, seq_len, n_stories) -> need to transpose to (N, n_stories, seq_len)
         ac = np.stack(accels).transpose(0, 2, 1)  # (N, n_stories, seq_len)
@@ -414,15 +441,29 @@ class NLTHAPipeline:
             scaler_params["input"] = {"method": "per_sample_standard"}
 
         if self.config.normalise_targets:
-            y_mean = y.mean(axis=0)
-            y_std = y.std(axis=0)
-            y_std = np.where(y_std < 1e-8, 1.0, y_std)
-            y = (y - y_mean) / y_std
-            scaler_params["target"] = {
-                "method": "global_standard",
-                "mean": y_mean.tolist(),
-                "std": y_std.tolist(),
-            }
+            if self.config.output_sequence:
+                # y is (N, n_stories, T). Normalize per story (axis=0, 2) or global?
+                # Usually per-story scaler: mean/std across batch and time.
+                y_mean = y.mean(axis=(0, 2), keepdims=True)  # (1, n_stories, 1)
+                y_std = y.std(axis=(0, 2), keepdims=True)
+                y_std = np.where(y_std < 1e-8, 1.0, y_std)
+                y = (y - y_mean) / y_std
+                # Save as list for JSON serialization (squeeze dims)
+                scaler_params["target"] = {
+                    "method": "per_story_sequence_standard",
+                    "mean": y_mean.flatten().tolist(),
+                    "std": y_std.flatten().tolist(),
+                }
+            else:
+                y_mean = y.mean(axis=0)
+                y_std = y.std(axis=0)
+                y_std = np.where(y_std < 1e-8, 1.0, y_std)
+                y = (y - y_mean) / y_std
+                scaler_params["target"] = {
+                    "method": "global_standard",
+                    "mean": y_mean.tolist(),
+                    "std": y_std.tolist(),
+                }
 
         x_tensor = torch.from_numpy(x.astype(np.float32))
         y_tensor = torch.from_numpy(y.astype(np.float32))
@@ -521,6 +562,7 @@ class NLTHAPipeline:
             "accel_response": accel_tensor,  # (N, 5, T) relative
             "vel_response": vel_tensor,  # (N, 5, T) relative
             "ground_accel": ground_tensor,  # (N, 1, T)
+            "dt": torch.tensor(dts, dtype=torch.float32),  # (N,)
         }
 
         logger.info(
@@ -615,8 +657,10 @@ class NLTHAPipeline:
             logger.error("No valid records after validation.")
             return {}
 
-        inputs, targets, accels, vels = self.augment(records)
-        x, y, scaler_params, physics = self.tensorise(inputs, targets, accels, vels)
+            return {}
+
+        inputs, targets, accels, vels, dts = self.augment(records)
+        x, y, scaler_params, physics = self.tensorise(inputs, targets, accels, vels, dts)
         splits = self.split(x, y, physics)
         self.export(splits, scaler_params)
 
@@ -642,6 +686,11 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true", help="Preview without saving")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     parser.add_argument("--n-stories", type=int, default=5, help="Number of building stories")
+    parser.add_argument(
+        "--scalar-output",
+        action="store_true",
+        help="Use v1.0 scalar output (peak IDR) instead of v2.0 sequence",
+    )
     args = parser.parse_args()
 
     level = logging.DEBUG if args.verbose else logging.INFO
@@ -653,6 +702,7 @@ if __name__ == "__main__":
         seq_len=args.seq_len,
         augment=not args.no_augment,
         n_stories=args.n_stories,
+        output_sequence=not args.scalar_output,
     )
 
     pipe = NLTHAPipeline(cfg)

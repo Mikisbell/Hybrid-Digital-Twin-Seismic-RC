@@ -1,0 +1,10 @@
+{
+    "input_dir": "data/raw/peer_3story",
+    "output_dir": "data/processed/peer_3story_seq",
+    "n_stories": 3,
+    "output_sequence": true,
+    "window_len": 2048,
+    "stride": 512,
+    "val_split": 0.1,
+    "test_split": 0.1
+}

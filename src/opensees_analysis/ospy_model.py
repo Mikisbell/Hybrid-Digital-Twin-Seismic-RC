@@ -340,6 +340,10 @@ class RCFrameModel:
     # Section tags
     SEC_COL = 10
     SEC_BEAM = 20
+    # Variable sections for tall buildings (N >= 8)
+    SEC_COL_BOT = 11  # Stories 1-4
+    SEC_COL_MID = 12  # Stories 5-7
+    SEC_COL_TOP = 13  # Stories 8+
 
     # Transformation tags
     TRANSF_PDELTA = 1  # Columns (P-Delta)
@@ -622,17 +626,74 @@ class RCFrameModel:
         sec = self.config.sections
 
         # ── Column fiber section ────────────────────────────────────────
-        self._build_rc_fiber_section(
-            sec_tag=self.SEC_COL,
-            width=sec.col_width,
-            depth=sec.col_depth,
-            cover=sec.col_cover,
-            n_bars_top=sec.col_n_bars_top,
-            n_bars_bot=sec.col_n_bars_bot,
-            n_bars_side=sec.col_n_bars_side,
-            bar_dia=sec.col_bar_dia,
-            label="Column",
-        )
+        if self.config.frame.n_stories >= 8:
+            # Variable sections for tall buildings
+            logger.info("Building variable column sections for N=%d", self.config.frame.n_stories)
+
+            # Bot (70x70)
+            self._build_rc_fiber_section(
+                sec_tag=self.SEC_COL_BOT,
+                width=0.70,
+                depth=0.70,
+                cover=sec.col_cover,
+                n_bars_top=5,
+                n_bars_bot=5,
+                n_bars_side=3,
+                bar_dia=sec.col_bar_dia,
+                label="Column (Bot 700)",
+            )
+            # Mid (60x60)
+            self._build_rc_fiber_section(
+                sec_tag=self.SEC_COL_MID,
+                width=0.60,
+                depth=0.60,
+                cover=sec.col_cover,
+                n_bars_top=4,
+                n_bars_bot=4,
+                n_bars_side=2,
+                bar_dia=sec.col_bar_dia,
+                label="Column (Mid 600)",
+            )
+            # Top (50x50 - same as default)
+            self._build_rc_fiber_section(
+                sec_tag=self.SEC_COL_TOP,
+                width=sec.col_width,
+                depth=sec.col_depth,
+                cover=sec.col_cover,
+                n_bars_top=sec.col_n_bars_top,
+                n_bars_bot=sec.col_n_bars_bot,
+                n_bars_side=sec.col_n_bars_side,
+                bar_dia=sec.col_bar_dia,
+                label="Column (Top 500)",
+            )
+
+            # Map default SEC_COL to Bot for compatibility if needed, though we'll use specific tags
+            # We still build SEC_COL as a fallback or for beam integration registration
+            self._build_rc_fiber_section(
+                sec_tag=self.SEC_COL,
+                width=sec.col_width,
+                depth=sec.col_depth,
+                cover=sec.col_cover,
+                n_bars_top=sec.col_n_bars_top,
+                n_bars_bot=sec.col_n_bars_bot,
+                n_bars_side=sec.col_n_bars_side,
+                bar_dia=sec.col_bar_dia,
+                label="Column (Default)",
+            )
+
+        else:
+            # Standard single section
+            self._build_rc_fiber_section(
+                sec_tag=self.SEC_COL,
+                width=sec.col_width,
+                depth=sec.col_depth,
+                cover=sec.col_cover,
+                n_bars_top=sec.col_n_bars_top,
+                n_bars_bot=sec.col_n_bars_bot,
+                n_bars_side=sec.col_n_bars_side,
+                bar_dia=sec.col_bar_dia,
+                label="Column",
+            )
 
         # ── Beam fiber section ──────────────────────────────────────────
         self._build_rc_fiber_section(
@@ -808,8 +869,18 @@ class RCFrameModel:
         # Define beam integration rules (Lobatto for accuracy at element ends)
         integ_col = 1
         integ_beam = 2
+        # Default
         ops.beamIntegration("Lobatto", integ_col, self.SEC_COL, n_ip)
         ops.beamIntegration("Lobatto", integ_beam, self.SEC_BEAM, n_ip)
+
+        # Variable sections
+        integ_col_bot = 11
+        integ_col_mid = 12
+        integ_col_top = 13
+        if frame.n_stories >= 8:
+            ops.beamIntegration("Lobatto", integ_col_bot, self.SEC_COL_BOT, n_ip)
+            ops.beamIntegration("Lobatto", integ_col_mid, self.SEC_COL_MID, n_ip)
+            ops.beamIntegration("Lobatto", integ_col_top, self.SEC_COL_TOP, n_ip)
 
         # ── Columns ─────────────────────────────────────────────────────
         for story in range(1, frame.n_stories + 1):
@@ -818,13 +889,24 @@ class RCFrameModel:
                 top_node = story * 100 + bay
                 tag = 1000 + story * 100 + bay
 
+                # Select section based on story
+                if frame.n_stories >= 8:
+                    if story <= 4:
+                        integ_tag = integ_col_bot
+                    elif story <= 7:
+                        integ_tag = integ_col_mid
+                    else:
+                        integ_tag = integ_col_top
+                else:
+                    integ_tag = integ_col
+
                 ops.element(
                     "forceBeamColumn",
                     tag,
                     bot_node,
                     top_node,
                     self.TRANSF_PDELTA,
-                    integ_col,
+                    integ_tag,
                 )
                 self._element_tags.append(tag)
 

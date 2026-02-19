@@ -263,3 +263,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Temporary verification artifacts
+data/processed_3story/
+data/raw_3story/
+data/models/synthetic_3story_backup/
+data/models/long_run/
+training_log.txt
+data/external/peer_nga/*.zip
