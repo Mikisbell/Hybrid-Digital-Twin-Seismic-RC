@@ -31,7 +31,7 @@ across multiple building heights ($N = 3$ and $N = 10$ stories).
 5.  **Data Efficiency**: The hybrid loss function enabled effective learning from 289 records,
     competitive with methods requiring thousands of simulations. Dataset augmentation
     (temporal windowing + amplitude scaling + Gaussian noise) produced 5,058 training samples
-    from 203 base records at a 2.5:1 augmentation ratio.
+    from 203 base records at a 24.9:1 augmentation ratio.
 
 6.  **Encoder Universality via Transfer Learning**: A CNN encoder trained on synthetic $N=3$ data
     transfers to real PEER $N=10$ data with only 1.3% $R^2$ loss ($0.700$ vs. $0.713$) and 35%

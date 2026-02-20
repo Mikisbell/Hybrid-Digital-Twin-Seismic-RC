@@ -146,7 +146,7 @@ strong-motion, pulse-like). The multi-head self-attention layer [24] (4 heads,
 embed\_dim $= 128$) allows the model to attend to specific temporal phases of
 the ground motion — including peak energy arrival and strong-motion duration —
 improving prediction coherence for upper-story responses dominated by higher
-vibration modes.
+vibration modes. The complete architecture is shown (Figure 3).
 
 ![PgNN architecture diagram](figures/pinn_architecture.png)
 

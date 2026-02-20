@@ -53,6 +53,8 @@ The final model (v1.6) incorporated three key architectural improvements:
 -   **Training Time**: ~43 minutes (vs ~8 min for v1.0, due to attention overhead)
 -   **Physics Loss**: Active throughout training ($\sim 1.1 \times 10^{-10}$)
 
+The loss convergence history is shown (Figure 4).
+
 ![Training and validation loss curves](figures/loss_curves.png)
 
 Figure 4. Training and validation loss convergence (PEER real data, v1.6).
@@ -69,7 +71,7 @@ Figure 4. Training and validation loss convergence (PEER real data, v1.6).
 | Story 2 $R^2$ | 0.748 | **0.758** | +1.0% |
 | Story 3 $R^2$ | 0.540 | **0.549** | +0.9% |
 
-The v1.6 model demonstrates consistent improvements across all stories. The most significant gain was in Story 1 (+1.5%), while Story 3 showed a modest improvement (+0.9%) despite the heavy loss weighting (2.15x). This suggests that while architectural enhancements help, the prediction of upper-story responses under real seismic excitation remains limited by input information (base acceleration only).
+The v1.6 model demonstrates consistent improvements across all stories. The most significant gain was in Story 1 (+1.5%), while Story 3 showed a modest improvement (+0.9%) despite the heavy loss weighting (2.15x). This suggests that while architectural enhancements help, the prediction of upper-story responses under real seismic excitation remains limited by input information (base acceleration only). The scatter plot and error distributions are shown (Figure 5) and (Figure 6), respectively.
 
 ![Predicted vs. Actual IDR](figures/pred_vs_actual.png)
 
@@ -151,6 +153,7 @@ Notably, the whiplash zone (Floors 8–10) shows a slight $R^2$ recovery at Stor
 vs. 0.636 at Story 7), which we attribute to the strong inverse-variance weighting applied to
 the lowest-variability upper floors ($w_{10} = 2.65\times$). The RMSE decreases monotonically
 with height (0.517% → 0.189%), reflecting the smaller absolute drift demands at upper stories.
+The comparative per-story accuracy profile is shown (Figure 7).
 
 ![R² per story — N=3 vs N=10](figures/r2_accuracy_profile.png)
 
@@ -198,7 +201,7 @@ framework [22] for three damage states per FEMA P-58 [17]:
 Parameters were estimated via Maximum Likelihood Estimation (MLE) of a lognormal fragility
 model [16]. The per-story Life Safety fragility reveals that Stories 4–5 exhibit the
 lowest median capacity ($\theta_{LS}$), identifying the mid-height zone — not the roof — as
-the most vulnerable region for Life Safety exceedance.
+the most vulnerable region for Life Safety exceedance. The building-level fragility curves are shown (Figure 8), and the per-story Life Safety fragility is presented (Figure 9).
 
 ![Fragility curves](figures/fragility_curves.png)
 

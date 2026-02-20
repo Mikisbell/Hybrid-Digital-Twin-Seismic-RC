@@ -6,11 +6,11 @@
 
 # Authors
 
-Miguel Rivera Ospina$^{1,*}$
+**[AUTHOR 1 NAME]**$^{1,*}$, **[AUTHOR 2 NAME]**$^{1}$, **[AUTHOR 3 NAME]**$^{1}$
 
-$^1$ Department of Civil Engineering, **[YOUR UNIVERSITY]**, **[CITY, COUNTRY]**
+$^1$ **[DEPARTMENT]**, **[UNIVERSITY]**, **[CITY, ZIP, STATE, COUNTRY]**
 
-$^*$Corresponding Author: **[YOUR EMAIL]**
+$^*$Corresponding Author: **[EMAIL]**
 
 Copyright © 2026 by authors, all rights reserved. Authors agree that this article remains permanently open access under the terms of the Creative Commons Attribution License 4.0 International License.
 

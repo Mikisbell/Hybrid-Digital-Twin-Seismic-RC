@@ -15,7 +15,7 @@ manuscript/
 ├── 05_discussion.md          # §5: Interpretation, comparison, whiplash effect
 ├── 06_conclusions.md         # §6: Key findings, contributions, future work
 ├── 07_acknowledgements.md    # Acknowledgements
-├── references.bib            # BibTeX bibliography — 30 references [1]–[30]
+├── references.bib            # BibTeX bibliography — 31 references [1]–[31]
 ├── figures/                  # Publication-ready figures (300 DPI, PNG)
 └── tables/                   # Formatted tables
 ```

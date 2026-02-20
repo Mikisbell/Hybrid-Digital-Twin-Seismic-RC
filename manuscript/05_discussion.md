@@ -21,6 +21,8 @@ Consistent with structural dynamics theory, lower stories (dominated by the 1st 
 
 ## 5.2 Comparison with Existing Methods
 
+**Table 11.** Comparison with existing seismic surrogate methods.
+
 | Approach | Accuracy ($R^2$) | Stories | Latency | Data Requirement |
 | :--- | :--- | :--- | :--- | :--- |
 | Full FEM (OpenSeesPy) | Reference | Any | 10–40 s/record | N/A |
