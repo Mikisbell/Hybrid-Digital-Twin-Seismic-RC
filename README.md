@@ -1,59 +1,91 @@
-# Hybrid Digital Twin of the FEM for Parametric Seismic Response of N-Story RC Buildings
+# Hybrid Digital Twin for Real-Time Seismic Response Prediction of RC Buildings
 
-Hybrid Digital Twin framework for accelerated surrogate modeling of nonlinear seismic response in RC buildings using OpenSeesPy and Physics-Informed Machine Learning (PIML).
+FEM-Guided Surrogate Modeling for accelerated structural analysis using Physics-Guided Neural Networks (PgNN).
 
-**Target Journal**: [Civil Engineering and Architecture — HRPUB](http://www.hrpub.org/journals/jour_info.php?id=48)
+**Target Journal**: [Civil Engineering and Architecture — HRPUB](http://www.hrpub.org/journals/jour_info.php?id=48) (Q2)
 
 ## Overview
 
 This framework combines:
-- **OpenSeesPy** [1]: High-fidelity non-linear time history analysis (NLTHA) of N-story RC frames
-- **Physics-Informed Neural Networks (PINNs)** [3]: Accelerated surrogate modeling for Probabilistic Seismic Demand Analysis (PSDA)
-- **High-Fidelity FEM Emulation** [4]: Replacing computationally expensive FEA with real-time neural inference
+- **OpenSeesPy** [1]: High-fidelity nonlinear time history analysis (NLTHA) of N-story RC frames
+- **Physics-Guided Neural Networks (PgNN)**: FEM-informed surrogate modeling for peak inter-story drift ratio (IDR) prediction
+- **Hybrid Digital Twin** [4]: Coupling high-fidelity FEM with real-time neural inference
 
-The system emulates the full displacement time history $u(t)$ of the Finite Element Model (FEM), enabling rapid parametric studies without the computational cost of thousands of direct integrations.
+The PgNN predicts peak IDR per story from base acceleration, achieving ~2 ms CPU inference latency — a 5000x speedup over full NLTHA (~10 s/record).
 
-### Kinematic-Informed Loss Function
+### Why Hybrid?
 
-The PINN embeds the equation of motion as a regularization term in the loss:
+Unlike standard black-box AI, this framework is **Physics-Guided and FEM-Consistent**.
+Nonlinear restoring forces $f_{int}$ from OpenSeesPy fiber sections inform per-story
+inverse-variance weights during training, encoding concrete cracking, steel yielding,
+and cyclic degradation without requiring millions of data points. The architecture
+scales from low-rise ($N=3$) to mid-rise ($N=10$) buildings by adjusting the output
+dimension.
 
-$$\mathcal{L}_{total} = \mathcal{L}_{data} + \lambda \left\| M\ddot{u}_{pred} + C\dot{u}_{pred} + f_{int}(u_{true}) + M\iota\ddot{u}_g \right\|^2$$
+### FEM-Guided Loss Function
 
-Where $f_{int}(u_{true})$ acts as a kinematic guide (Teacher Forcing) from the FEM, filtering non-physical high-frequency noise.
+The training objective embeds FEM physics at three levels:
+
+1. **Per-story inverse-variance weights** from NLTHA response statistics
+2. **Weighted data fidelity** between predicted and FEM-simulated peak IDR
+3. **Physics tensor regularization** via equation-of-motion residual (active in Seq2Seq mode)
+
+$$\mathcal{L}_{total} = \lambda_d\,\mathcal{L}_{data} + \lambda_p\,\mathcal{L}_{reg} + \lambda_b\,\mathcal{L}_{bc}$$
+
+### Validated Results
+
+| Configuration | Records | $R^2$ | RMSE (%) | Latency |
+|:---|:---|:---|:---|:---|
+| $N=3$ (PEER NGA-West2) | 289 | 0.783 | 0.834 | ~2 ms |
+| $N=10$ (PEER NGA-West2) | 265 | 0.713 | — | ~2.5 ms |
+| Transfer $N=3 \to 10$ | 265 | 0.700 | — | ~2.5 ms |
 
 ## Project Structure
 
 ```
 Hybrid-Digital-Twin-Seismic-RC/
 ├── src/                        # Source code
+│   ├── config.py               # GlobalConfig — single source of truth
 │   ├── opensees_analysis/      # OpenSeesPy RC model & NLTHA runners
-│   ├── pinn/                   # Physics-Informed Neural Network
-│   │   └── benchmark_latency.py  # Real-time latency validation (≤100 ms)
+│   ├── pinn/                   # Physics-Guided Neural Network
+│   │   ├── model.py            # HybridPINN architecture (1D-CNN + Attention)
+│   │   ├── loss.py             # FEM-guided composite loss function
+│   │   ├── train.py            # Training entry point
+│   │   ├── trainer.py          # Training loop & checkpointing
+│   │   ├── evaluate.py         # Metrics & publication figures
+│   │   └── infer.py            # Quick inference demo
 │   ├── preprocessing/          # Data pipeline & feature engineering
-│   └── utils/                  # Notion sync, figure manager, helpers
+│   │   ├── data_factory.py     # PEER AT2 → NLTHA CSV
+│   │   └── pipeline.py         # CSV → PyTorch tensors
+│   └── utils/                  # Helpers
+├── scripts/                    # Utility scripts
+│   ├── build_docx.py           # Reproducible Word document generator
+│   └── fragility_curves.py     # Fragility curve analysis
 ├── data/                       # Data storage (heavy files git-ignored)
 │   ├── raw/                    # Raw NLTHA simulation output
-│   ├── processed/              # ML-ready datasets
+│   │   ├── peer_3story/        # N=3 campaign (289 records)
+│   │   └── peer_10story/       # N=10 campaign (265 records)
+│   ├── processed/              # ML-ready PyTorch tensors (.pt)
 │   ├── external/               # PEER NGA-West2 ground motions [2]
-│   └── models/                 # Trained checkpoints & benchmarks
-├── manuscript/                 # HRPUB paper (English only)
-│   ├── 01_introduction.md      # Background & literature gap
-│   ├── 02_objectives.md        # Research objectives
-│   ├── 03_methods.md           # NLTHA + PINN + DT methodology
-│   ├── 04_results.md           # Simulation & prediction results
-│   ├── 05_discussion.md        # Interpretation & comparison
-│   ├── 06_conclusions.md       # Findings & future work
-│   ├── references.bib          # BibTeX (numeric correlative [1]–[N])
-│   ├── figures/                # ≥300 DPI publication figures
-│   └── tables/                 # Formatted data tables
-├── notebooks/                  # Jupyter notebooks (EDA, training, demos)
-├── .github/workflows/          # CI/CD & Notion sync automation
+│   └── models/                 # Trained checkpoints & metrics
+├── manuscript/                 # HRPUB paper
+│   ├── 01_introduction.md      # Title, abstract, keywords, §1 Introduction
+│   ├── 02_objectives.md        # §2 Objectives
+│   ├── 03_methods.md           # §3: NLTHA model, PgNN architecture, FEM-guided loss
+│   ├── 04_results.md           # §4: Simulation outputs, training, predictions
+│   ├── 05_discussion.md        # §5: Interpretation, comparison, whiplash effect
+│   ├── 06_conclusions.md       # §6: Key findings, contributions, future work
+│   ├── 07_acknowledgements.md  # Acknowledgements
+│   ├── references.bib          # BibTeX bibliography — 30 references [1]–[30]
+│   └── figures/                # Publication-ready figures (300 DPI, PNG)
+├── notebooks/                  # Jupyter notebooks (verification, demos)
+├── .github/workflows/          # CI/CD automation
 └── requirements.txt            # Python dependencies
 ```
 
-> **Note**: Heavy data files (`.csv`, `.hdf5`, `.pkl`, model weights) are
-> excluded via `.gitignore`. The data pipeline is fully reproducible from
-> source code. See `data/README.md` for regeneration instructions.
+> **Note**: Heavy data files (`.pt`, `.csv`, model weights) are excluded via
+> `.gitignore`. The data pipeline is fully reproducible from source code.
+> See `data/README.md` for regeneration instructions.
 
 ## Installation
 
@@ -70,107 +102,96 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Register Jupyter kernel:
-```bash
-python -m ipykernel install --user --name hybrid-dt --display-name "Hybrid DT (Python 3.10)"
-```
-
-4. Activate pre-commit hooks:
+3. Activate pre-commit hooks:
 ```bash
 pre-commit install
 ```
 
 ## Getting Started
 
-1. **Run OpenSeesPy Simulations**: Generate structural response data using non-linear time history analysis
-2. **Process Data**: Prepare training datasets from simulation results
-3. **Train PINN Models**: Develop physics-informed models for damage prediction
-4. **Deploy Digital Twin**: Implement real-time prediction system
+The three pipeline stages share the `--n-stories` parameter.
+`GlobalConfig` (saved by the factory) ensures consistency automatically.
 
-See individual directory READMEs for detailed information.
+```bash
+# 1. Generate NLTHA simulation data (one-time, ~2 min/record)
+python src/preprocessing/data_factory.py \
+    --n-stories 3 --n-records 300 \
+    --output-dir data/raw/peer_3story
+
+# 2. Build ML-ready tensors (validates n_stories against factory config)
+python src/preprocessing/pipeline.py \
+    --n-stories 3 \
+    --raw-dir data/raw/peer_3story --out-dir data/processed/peer_3story
+
+# 3. Train PgNN (n_stories auto-detected from processed data)
+python src/pinn/train.py --epochs 500
+
+# 4. Evaluate and generate publication figures
+python src/pinn/evaluate.py
+
+# 5. Quick inference demo
+python src/pinn/infer.py --save-fig
+```
+
+For $N=10$:
+```bash
+python src/preprocessing/data_factory.py --n-stories 10 --output-dir data/raw/peer_10story
+python src/preprocessing/pipeline.py --n-stories 10 --raw-dir data/raw/peer_10story --out-dir data/processed/peer_10story_scalar
+python src/pinn/train.py --epochs 1000 --batch-size 16 --processed-dir data/processed/peer_10story_scalar --checkpoint-dir data/models_n10_scalar
+```
+
+> **Tip:** If you change `--n-stories`, always restart from Step 1.
+> The pipeline raises a `ValueError` if the stored config does not match.
 
 ## Features
 
-- Non-linear dynamic analysis of RC structures
-- Physics-based neural network architectures
-- Real-time inter-story drift prediction
-- Seismic damage assessment
-- Digital twin visualization and monitoring
+- Nonlinear dynamic analysis of RC structures (fiber sections, distributed plasticity)
+- Parametric N-story surrogate model — validated for $N=3$ and $N=10$
+- FEM-guided training objective (inverse-variance weights from $f_{int}$ statistics)
+- 1D-CNN encoder with temporal self-attention (4 heads)
+- Transfer learning: freeze encoder trained on $N=3$, retrain head for $N=10$
+- CPU inference at ~2 ms for real-time structural health monitoring
+- Reproducible PEER NGA-West2 pipeline with ASCE 7-22 spectrum scaling
+- Centralized `GlobalConfig` preventing n_stories mismatches across pipeline stages
 
 ## Requirements
 
-- Python ≥3.10
-- OpenSeesPy ≥3.5.0
-- PyTorch ≥2.0.0
+- Python >= 3.10
+- OpenSeesPy >= 3.7.0
+- PyTorch >= 2.0.0
 - NumPy, SciPy, Pandas
-- Jupyter for notebooks
-- notion-client (for automation sync)
+- python-docx (for manuscript build)
+- pandoc >= 3.0 (for .docx generation)
 
-## Development Stack
+## Development
 
-### VS Code Extensions (11)
+### Pre-commit Hooks
 
-| Extension | Category | Purpose |
-|-----------|----------|---------|
-| **Jupyter PowerToys** | Notebooks | Kernel management, execution profiling, notebook diffs |
-| **Data Table Renderers** | Notebooks | Interactive sortable/filterable DataFrames in cell output |
-| **Ruff** | Code Quality | Ultra-fast Python linter (100x faster than flake8), auto-fixes |
-| **Black Formatter** | Code Quality | Deterministic code formatting on save |
-| **isort** | Code Quality | Automatic import sorting (Black-compatible profile) |
-| **GitLens** | Version Control | Inline blame, file history, commit comparison |
-| **Git Graph** | Version Control | Visual branch/commit graph for project history |
-| **TensorBoard** | ML Training | Loss curves, weight histograms, model graphs inside VS Code |
-| **Markdown Mermaid** | Documentation | Flow/sequence diagrams in Markdown (architecture docs) |
-| **LaTeX Workshop** | Publication | LaTeX editing/compilation for HRPUB manuscript |
-| **MD Preview GitHub** | Documentation | GitHub-accurate Markdown preview |
+Every `git commit` automatically runs: Ruff lint, Ruff format, isort, trailing whitespace, end-of-file fixer, YAML check, JSON check, large file blocker (>1 MB).
 
-### Python Packages (beyond core dependencies)
+### Build Manuscript
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| **Weights & Biases** | ≥0.25.0 | ML experiment tracking: hyperparameters, loss, artifacts |
-| **Marimo** | ≥0.19.0 | Reactive notebooks for parametric PINN exploration |
-| **DVC** | ≥3.60.0 | Data version control for GB-scale simulation outputs |
-| **pytest** | ≥9.0.0 | Unit testing for pipeline, model, and utilities |
-| **pre-commit** | ≥4.5.0 | Git hooks: Ruff + format + isort + file hygiene on every commit |
-
-### Automated Workflows (GitHub Actions)
-
-| Workflow | Trigger | Action |
-|----------|---------|--------|
-| `🔬 Sync Research Progress` | Push to `src/`, `notebooks/`, `data/` | Creates entry in Notion Roadmap DB |
-| `🧠 Log PINN Training` | Push to `src/pinn/` or benchmark results | Logs metrics to Notion Simulation DB |
-
-### Pre-commit Hooks (8 active)
-
-Every `git commit` automatically runs: Ruff lint → Ruff format → isort → trailing whitespace → end-of-file fixer → YAML check → JSON check → large file blocker (>1 MB).
+```bash
+python scripts/build_docx.py
+# Output: manuscript/Hybrid_Digital_Twin_Seismic_RC.docx
+```
 
 ## License
 
 See [LICENSE](LICENSE) for details.
 
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-
 ## References
 
-> **HRPUB citation format**: numeric correlative in brackets.
-
-- [1] F. McKenna, "OpenSees: A Framework for Earthquake Engineering Simulation," *Comput. Sci. Eng.*, vol. 13, no. 4, pp. 58–66, 2011.
-- [2] T. D. Ancheta *et al.*, "NGA-West2 Database," *Earthquake Spectra*, vol. 30, no. 3, pp. 989–1005, 2014.
-- [3] M. Raissi, P. Perdikaris, and G. E. Karniadakis, "Physics-informed neural networks," *J. Comput. Phys.*, vol. 378, pp. 686–707, 2019.
-- [4] F. Tao *et al.*, "Digital Twin in Industry: State-of-the-Art," *IEEE Trans. Ind. Inform.*, vol. 15, no. 4, pp. 2405–2415, 2019.
-- [5] ACI Committee 318, *Building Code Requirements for Structural Concrete (ACI 318-19)*, ACI, 2019.
-- [6] R. Zhang, Y. Liu, and H. Sun, "Physics-Informed Multi-LSTM Networks for Metamodeling of Nonlinear Structures," *CMAME*, vol. 369, 113226, 2020.
-- [7] J. B. Mander, M. J. N. Priestley, and R. Park, "Theoretical Stress-Strain Model for Confined Concrete," *J. Struct. Eng.*, vol. 114, no. 8, pp. 1804–1826, 1988.
-- [8] M. Menegotto and P. E. Pinto, "Method of Analysis for Cyclically Loaded RC Frames," *IABSE Symposium*, pp. 15–22, 1973.
+- [1] F. McKenna, "OpenSees: A Framework for Earthquake Engineering Simulation," *Comput. Sci. Eng.*, vol. 13, no. 4, pp. 58-66, 2011.
+- [2] T. D. Ancheta *et al.*, "NGA-West2 Database," *Earthquake Spectra*, vol. 30, no. 3, pp. 989-1005, 2014.
+- [3] M. Raissi, P. Perdikaris, and G. E. Karniadakis, "Physics-informed neural networks," *J. Comput. Phys.*, vol. 378, pp. 686-707, 2019.
+- [4] F. Tao *et al.*, "Digital Twin in Industry: State-of-the-Art," *IEEE Trans. Ind. Inform.*, vol. 15, no. 4, pp. 2405-2415, 2019.
 
 ## Citation
 
 If you use this framework in your research, please cite:
 ```
-[1] Mikisbell et al. (2026). "Hybrid Digital Twin for Real-Time Seismic
-    Damage Prediction in RC Buildings Using Physics-Informed Neural Networks."
-    Civil Engineering and Architecture, HRPUB. (Under review)
+Rivera Ospina, M. A. (2026). Hybrid Digital Twin for Real-Time Seismic Response
+Prediction of Reinforced Concrete Buildings Using Physics-Guided Neural Networks.
+Civil Engineering and Architecture (HRPUB), under review.
 ```

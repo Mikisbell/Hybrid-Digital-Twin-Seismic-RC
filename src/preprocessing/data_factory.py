@@ -1201,22 +1201,18 @@ class DataFactory:
             "converged",
             "wall_clock_s",
             "n_steps",
-            "max_idr_1",
-            "max_idr_2",
-            "max_idr_3",
-            "max_idr_4",
-            "max_idr_5",
-            "max_idr_overall",
-            "peak_base_shear_kN",
-            "output_file",
         ]
+        # Dynamic drift headers for N stories
+        for i in range(1, self.config.n_stories + 1):
+            headers.append(f"max_idr_{i}")
+        headers.extend(["max_idr_overall", "peak_base_shear_kN", "output_file"])
 
         with open(summary_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(headers)
 
             for gm, result in zip(self.gm_records, self.results, strict=False):
-                drifts = result.get("max_drift", [0] * 5)
+                drifts = result.get("max_drift", [0.0] * self.config.n_stories)
                 row = [
                     gm.name,
                     gm.source,
@@ -1227,10 +1223,18 @@ class DataFactory:
                     result.get("duration_s", 0),
                     result.get("n_steps", 0),
                 ]
+
                 # Per-story max IDR
-                for i in range(5):
-                    row.append(f"{drifts[i]:.6f}" if i < len(drifts) else "0.0")
-                row.append(f"{max(drifts):.6f}" if drifts else "0.0")
+                # Ensure we have enough drift values, or pad with 0.0
+                n_drifts = len(drifts)
+                for i in range(self.config.n_stories):
+                    val = drifts[i] if i < n_drifts else 0.0
+                    row.append(f"{val:.6f}")
+
+                # Overall max
+                overall_max = max(drifts) if drifts else 0.0
+                row.append(f"{overall_max:.6f}")
+
                 row.append(f"{result.get('peak_base_shear', 0):.1f}")
                 row.append(result.get("output_file", ""))
                 writer.writerow(row)
@@ -1395,6 +1399,14 @@ def main() -> None:
             factory._report_gm_stats()
     else:
         factory.run(dry_run=args.dry_run)
+
+    # Persist GlobalConfig so downstream scripts (pipeline, train) can validate
+    # that they are operating on consistent structural parameters.
+    if not args.dry_run:
+        from src.config import GlobalConfig
+
+        GlobalConfig(n_stories=args.n_stories, n_bays=args.n_bays).save(args.output_dir)
+        logger.info("GlobalConfig saved to %s (n_stories=%d)", args.output_dir, args.n_stories)
 
 
 if __name__ == "__main__":

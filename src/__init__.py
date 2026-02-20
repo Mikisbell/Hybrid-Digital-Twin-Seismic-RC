@@ -13,3 +13,7 @@ RC structures for seismic resilience assessment.
 __version__ = "0.1.0"
 __author__ = "Mikisbell"
 __description__ = "Hybrid Digital Twin for Seismic RC Buildings"
+
+from src.config import GlobalConfig
+
+__all__ = ["GlobalConfig"]

@@ -1,8 +1,8 @@
 """
-model.py — Hybrid-PINN Architecture for Seismic RC Response Prediction
-=======================================================================
+model.py — Hybrid Physics-Guided Surrogate (PgNN) for Seismic RC Response Prediction
+======================================================================================
 
-Implements the production PINN model: a 1D-CNN temporal encoder followed
+Implements the production Physics-Guided surrogate model (PgNN): a 1D-CNN temporal encoder followed
 by fully-connected regression layers.  The network predicts inter-story
 drift ratios (IDR) from ground-motion acceleration time series.
 
@@ -273,9 +273,9 @@ class HybridPINN(nn.Module):
     """Hybrid Physics-Informed Neural Network for seismic IDR prediction.
 
     Combines a 1D-CNN temporal encoder with an FC regression head.
-    The model is "physics-informed" through the loss function (see loss.py),
-    not through architectural constraints — the architecture itself is a
-    standard encoder-regressor.
+    The model is "physics-guided" through FEM training data (f_int, mass_matrix)
+    and physics-tensor-informed story weights derived from OpenSeesPy NLTHA.
+    The architecture itself is a standard encoder-regressor (1D-CNN + FC head).
 
     Parameters
     ----------

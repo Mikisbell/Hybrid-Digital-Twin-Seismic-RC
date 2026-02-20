@@ -363,7 +363,11 @@ class RCFrameModel:
 
     def build(self) -> None:
         """Build the complete FE model from scratch."""
-        logger.info("Building 5-story 3-bay RC frame model...")
+        logger.info(
+            "Building %d-story %d-bay RC frame model...",
+            self.config.frame.n_stories,
+            self.config.frame.n_bays,
+        )
         self._wipe_and_init()
         self._define_nodes()
         self._define_materials()
@@ -458,7 +462,14 @@ class RCFrameModel:
         return self._periods  # type: ignore[return-value]
 
     def setup_rayleigh_damping(self) -> None:
-        """Assign Rayleigh damping based on configured modes."""
+        """Assign Rayleigh damping based on configured modes.
+
+        Damping calibrated on modes 1 & 3 per standard practice for
+        nonlinear time-history analysis of RC frames (Chopra, 2017;
+        PEER TBI Guidelines, 2017; NIST GCR 10-917-8).  Higher modes
+        will be overdamped (ξ_eff grows with ω), which is an accepted
+        trade-off to avoid under-damping intermediate modes.
+        """
         self._check_built()
         periods = self.get_periods()
         m1, m2 = self.config.damping_modes

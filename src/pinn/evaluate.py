@@ -292,6 +292,153 @@ def plot_error_distribution(
     plt.close(fig)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# N-story accuracy profile (Figure 7)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Known N=3 baseline results (v1.6, PEER real data)
+_N3_R2 = [0.763, 0.758, 0.549]
+
+# Theoretical upper-bound envelope for N=10 (Section 5.4.3).
+# Based on modal participation argument: first-mode dominated floors retain
+# high accuracy; whiplash zone (floors 8-10) degrades. Updated automatically
+# when N=10 test_metrics.json is available.
+_N10_R2_THEORY_LOW = [0.70, 0.68, 0.65, 0.60, 0.57, 0.55, 0.52, 0.49, 0.47, 0.45]
+_N10_R2_THEORY_HIGH = [0.80, 0.78, 0.75, 0.70, 0.67, 0.64, 0.60, 0.57, 0.54, 0.52]
+
+
+def plot_r2_accuracy_profile(
+    fm: FigureManager,
+    n10_metrics_path: Path | None = None,
+) -> None:
+    """Figure 7: R² per story for N=3 (measured) and N=10 (measured or predicted).
+
+    Shows the characteristic accuracy degradation toward the whiplash zone
+    (upper stories) driven by higher-mode participation.  When real N=10
+    metrics are available via *n10_metrics_path*, they replace the theoretical
+    envelope.
+
+    Parameters
+    ----------
+    fm:
+        FigureManager instance for saving at publication DPI.
+    n10_metrics_path:
+        Optional path to ``test_metrics.json`` for the N=10 model.
+        If None or missing, the theoretical envelope is plotted as a
+        shaded region labelled "Expected range (N=10)".
+    """
+    fig, ax = plt.subplots(figsize=FigureManager.DOUBLE_COLUMN)
+
+    # ── N=3 measured ──────────────────────────────────────────────────────────
+    stories_n3 = list(range(1, len(_N3_R2) + 1))
+    ax.plot(
+        stories_n3,
+        _N3_R2,
+        "o-",
+        color="#1f77b4",
+        linewidth=1.8,
+        markersize=8,
+        markerfacecolor="white",
+        markeredgewidth=2,
+        label=f"N=3 (measured, v1.6)  $R^2_{{overall}}={np.mean(_N3_R2):.3f}$",
+        zorder=4,
+    )
+
+    # ── N=10: measured or theoretical envelope ────────────────────────────────
+    n10_r2_measured: list[float] | None = None
+    if n10_metrics_path is not None and Path(n10_metrics_path).exists():
+        with open(n10_metrics_path) as f:
+            n10_data = json.load(f)
+        n10_r2_measured = n10_data.get("r2_per_story")
+
+    if n10_r2_measured is not None:
+        stories_n10 = list(range(1, len(n10_r2_measured) + 1))
+        ax.plot(
+            stories_n10,
+            n10_r2_measured,
+            "s-",
+            color="#d62728",
+            linewidth=1.8,
+            markersize=8,
+            markerfacecolor="white",
+            markeredgewidth=2,
+            label=f"N=10 (measured, v2.0)  $R^2_{{overall}}={np.mean(n10_r2_measured):.3f}$",
+            zorder=4,
+        )
+        n10_label = "measured"
+    else:
+        # Theoretical envelope (shaded band)
+        stories_n10 = list(range(1, 11))
+        ax.fill_between(
+            stories_n10,
+            _N10_R2_THEORY_LOW,
+            _N10_R2_THEORY_HIGH,
+            color="#d62728",
+            alpha=0.20,
+            label="N=10 — Expected range (Section 5.4.3)",
+            zorder=2,
+        )
+        ax.plot(
+            stories_n10,
+            [(lo + hi) / 2 for lo, hi in zip(_N10_R2_THEORY_LOW, _N10_R2_THEORY_HIGH, strict=True)],
+            "--",
+            color="#d62728",
+            linewidth=1.2,
+            alpha=0.7,
+            zorder=3,
+        )
+        n10_label = "predicted"
+
+    # ── Zone annotations ──────────────────────────────────────────────────────
+    ax.axvspan(7.5, 10.5, alpha=0.06, color="#ff7f0e", zorder=1)
+    ax.text(
+        9.0,
+        ax.get_ylim()[0] + 0.02 if ax.get_ylim()[0] > 0 else 0.42,
+        "Whiplash\nzone",
+        ha="center",
+        va="bottom",
+        fontsize=8,
+        color="#d62728",
+        fontstyle="italic",
+    )
+
+    # ── Collapse-level reference ───────────────────────────────────────────────
+    ax.axhline(
+        0.5,
+        color="gray",
+        linestyle=":",
+        linewidth=0.9,
+        alpha=0.6,
+        label="$R^2 = 0.50$ (minimum acceptable)",
+    )
+
+    ax.set_xlabel("Story Number")
+    ax.set_ylabel("Coefficient of Determination ($R^2$)")
+    ax.set_title(
+        f"Per-Story Prediction Accuracy: N=3 (measured) vs N=10 ({n10_label})",
+        pad=10,
+    )
+    ax.set_xlim(0.5, max(len(stories_n3), len(stories_n10)) + 0.5)
+    ax.set_ylim(0.35, 1.0)
+    ax.set_xticks(range(1, max(len(stories_n3), len(stories_n10)) + 1))
+    ax.legend(frameon=True, fancybox=False, edgecolor="0.7", fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    fm.save(
+        fig,
+        caption=(
+            "Per-story $R^2$ accuracy profile comparing the N=3 (v1.6, PEER real data) "
+            "measured results with the N=10 (v2.0) "
+            + ("measured results. " if n10_r2_measured else "theoretical prediction envelope. ")
+            + "The shaded orange region (Floors 8–10) marks the whiplash zone where "
+            "higher-mode participation degrades prediction accuracy. "
+            "The dashed grey line indicates $R^2 = 0.50$ (minimum acceptable threshold)."
+        ),
+        label="r2_accuracy_profile",
+    )
+    plt.close(fig)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
@@ -363,6 +510,12 @@ def main() -> None:
     plot_loss_curves(history, fm)
     plot_pred_vs_actual(y_true, y_pred, metrics, fm, story_labels)
     plot_error_distribution(y_true, y_pred, fm, story_labels)
+
+    # Figure 7: R² per story — N=3 measured vs N=10 measured/predicted.
+    # Automatically switches from theoretical envelope to real data when the
+    # N=10 checkpoint has been evaluated and test_metrics.json is present.
+    n10_metrics = Path("data/models_n10") / "test_metrics.json"
+    plot_r2_accuracy_profile(fm, n10_metrics_path=n10_metrics)
 
     logger.info("Publication figures saved to %s", FIG_DIR)
 

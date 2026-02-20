@@ -207,6 +207,11 @@ class NLTHAPipeline:
             dt = meta.get("ground_motion", {}).get("dt", 0.01)
             converged = meta.get("results", {}).get("converged", True)
 
+        # Critical v2.0 Check: dt must be valid for physics loss
+        if dt <= 0.0:
+            logger.warning("Invalid dt=%f for %s. Defaulting to 0.01", dt, csv_path.name)
+            dt = 0.01
+
         pga = float(np.max(np.abs(ground_accel)))
         peak_idr = np.max(np.abs(drift), axis=0)
         peak_idr_overall = float(np.max(peak_idr))
@@ -695,6 +700,26 @@ if __name__ == "__main__":
 
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+
+    # Validate n_stories consistency against the factory that generated raw data.
+    from src.config import GlobalConfig
+
+    try:
+        saved_cfg = GlobalConfig.load(args.raw_dir)
+        if saved_cfg.n_stories != args.n_stories:
+            raise ValueError(
+                f"n_stories mismatch: data in '{args.raw_dir}' was generated for "
+                f"{saved_cfg.n_stories} stories, but pipeline received "
+                f"--n-stories {args.n_stories}. "
+                f"Re-run with --n-stories {saved_cfg.n_stories} for consistency."
+            )
+        logger.info("GlobalConfig validated: n_stories=%d", saved_cfg.n_stories)
+    except FileNotFoundError:
+        logger.warning(
+            "No global_config.json found in '%s'. Proceeding with --n-stories %d (unvalidated).",
+            args.raw_dir,
+            args.n_stories,
+        )
 
     cfg = PipelineConfig(
         raw_dir=args.raw_dir,

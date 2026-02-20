@@ -1,6 +1,6 @@
 % =============================================================================
 % Hybrid Digital Twin — Bibliography
-% Style: Numeric correlative [1], [2], ... (HRPUB requirement)
+% Style: Numeric correlative [1], [2], ...
 % =============================================================================
 
 @article{ref1_opensees,
@@ -54,11 +54,14 @@
   address   = {Farmington Hills, MI}
 }
 
-% [6] merged into [10] — Zhang et al. (2020) PINN structural dynamics
-% (kept as alias for backward compatibility in any existing citations)
-@article{ref6_pinn_structural,
-  crossref = {ref10_zhang_pinn_structural},
-  note     = {See [10]}
+@article{ref6_dt_shm,
+  author  = {Barricelli, Barbara Rita and Casiraghi, Elena and Fogli, Daniela},
+  title   = {A Survey on Digital Twin: Definitions, Characteristics, Applications, and Design Implications},
+  journal = {IEEE Access},
+  year    = {2019},
+  volume  = {7},
+  pages   = {167653--167671},
+  doi     = {10.1109/ACCESS.2019.2953499}
 }
 
 @article{ref7_concrete02,
@@ -137,4 +140,153 @@
   volume  = {474},
   pages   = {111722},
   doi     = {10.1016/j.jcp.2022.111722}
+}
+
+% --- New references [16]–[30] ---
+
+@article{ref16_baker_fragility,
+  author  = {Baker, Jack W.},
+  title   = {Efficient Analytical Fragility Function Fitting Using Dynamic Structural Analysis},
+  journal = {Earthquake Spectra},
+  year    = {2015},
+  volume  = {31},
+  number  = {1},
+  pages   = {579--599},
+  doi     = {10.1193/021113EQS025M}
+}
+
+@techreport{ref17_fema_p58,
+  author      = {{Federal Emergency Management Agency}},
+  title       = {Seismic Performance Assessment of Buildings, Volume 1 -- Methodology},
+  institution = {FEMA},
+  number      = {P-58-1},
+  year        = {2018},
+  address     = {Washington, DC}
+}
+
+@book{ref18_asce7,
+  author    = {{American Society of Civil Engineers}},
+  title     = {Minimum Design Loads and Associated Criteria for Buildings and Other Structures},
+  publisher = {ASCE},
+  year      = {2022},
+  edition   = {ASCE/SEI 7-22},
+  address   = {Reston, VA},
+  doi       = {10.1061/9780784415788}
+}
+
+@article{ref19_openseepy,
+  author  = {Zhu, Minjie and McKenna, Frank and Scott, Michael H.},
+  title   = {OpenSeesPy: Python Library for the OpenSees Finite Element Framework},
+  journal = {SoftwareX},
+  year    = {2018},
+  volume  = {7},
+  pages   = {6--11},
+  doi     = {10.1016/j.softx.2017.10.009}
+}
+
+@book{ref20_chopra,
+  author    = {Chopra, Anil K.},
+  title     = {Dynamics of Structures: Theory and Applications to Earthquake Engineering},
+  publisher = {Pearson},
+  year      = {2020},
+  edition   = {5th}
+}
+
+@article{ref21_oh_cnn_seismic,
+  author  = {Oh, Byung Kwan and Park, Yousok and Park, Hyo Seon},
+  title   = {Seismic Response Prediction Method for Building Structures Using Convolutional Neural Network},
+  journal = {Structural Control and Health Monitoring},
+  year    = {2020},
+  volume  = {27},
+  number  = {5},
+  pages   = {e2519},
+  doi     = {10.1002/stc.2519}
+}
+
+@article{ref22_cornell_fragility,
+  author  = {Cornell, C. Allin and Jalayer, Fatemeh and Hamburger, Ronald O. and Foutch, Douglas A.},
+  title   = {Probabilistic Basis for 2000 SAC Federal Emergency Management Agency Steel Moment Frame Guidelines},
+  journal = {Journal of Structural Engineering},
+  year    = {2002},
+  volume  = {128},
+  number  = {4},
+  pages   = {526--533},
+  doi     = {10.1061/(ASCE)0733-9445(2002)128:4(526)}
+}
+
+@inproceedings{ref23_kendall_multitask,
+  author    = {Kendall, Alex and Gal, Yarin and Cipolla, Roberto},
+  title     = {Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics},
+  booktitle = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2018},
+  pages     = {7482--7491}
+}
+
+@inproceedings{ref24_vaswani_attention,
+  author    = {Vaswani, Ashish and Shazeer, Noam and Parmar, Niki and Uszkoreit, Jakob and Jones, Llion and Gomez, Aidan N. and Kaiser, {\L}ukasz and Polosukhin, Illia},
+  title     = {Attention Is All You Need},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2017},
+  volume    = {30},
+  pages     = {5998--6008}
+}
+
+@inproceedings{ref25_batchnorm,
+  author    = {Ioffe, Sergey and Szegedy, Christian},
+  title     = {Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2015},
+  pages     = {448--456}
+}
+
+@article{ref26_dropout,
+  author  = {Srivastava, Nitish and Hinton, Geoffrey and Krizhevsky, Alex and Sutskever, Ilya and Salakhutdinov, Ruslan},
+  title   = {Dropout: A Simple Way to Prevent Neural Networks from Overfitting},
+  journal = {Journal of Machine Learning Research},
+  year    = {2014},
+  volume  = {15},
+  pages   = {1929--1958}
+}
+
+@article{ref27_surrogate_review,
+  author  = {Salehi, Hadi and Burgue{\~n}o, Rigoberto},
+  title   = {Emerging Artificial Intelligence Methods in Structural Engineering},
+  journal = {Engineering Structures},
+  year    = {2018},
+  volume  = {171},
+  pages   = {170--189},
+  doi     = {10.1016/j.engstruct.2018.05.084}
+}
+
+@article{ref28_transfer_survey,
+  author  = {Pan, Sinno Jialin and Yang, Qiang},
+  title   = {A Survey on Transfer Learning},
+  journal = {IEEE Transactions on Knowledge and Data Engineering},
+  year    = {2010},
+  volume  = {22},
+  number  = {10},
+  pages   = {1345--1359},
+  doi     = {10.1109/TKDE.2009.191}
+}
+
+@article{ref29_karniadakis_pinn_review,
+  author  = {Karniadakis, George Em and Kevrekidis, Ioannis G. and Lu, Lu and Perdikaris, Paris and Wang, Sifan and Yang, Liu},
+  title   = {Physics-informed machine learning},
+  journal = {Nature Reviews Physics},
+  year    = {2021},
+  volume  = {3},
+  number  = {6},
+  pages   = {422--440},
+  doi     = {10.1038/s42254-021-00314-5}
+}
+
+@article{ref30_mangalathu_ml_structural,
+  author  = {Mangalathu, Sujith and Jeon, Jong-Su},
+  title   = {Machine Learning--Based Failure Mode Recognition of Circular Reinforced Concrete Columns: Comparative Study},
+  journal = {Journal of Structural Engineering},
+  year    = {2020},
+  volume  = {146},
+  number  = {8},
+  pages   = {04020148},
+  doi     = {10.1061/(ASCE)ST.1943-541X.0002700}
 }

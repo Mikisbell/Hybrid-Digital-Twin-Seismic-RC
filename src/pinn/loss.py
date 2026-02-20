@@ -1,8 +1,8 @@
 """
-loss.py — Hybrid Physics-Informed Loss Function
-================================================
+loss.py — Hybrid Physics-Guided Loss Function
+==============================================
 
-Implements the three-component loss for the Hybrid Digital Twin PINN:
+Implements the three-component loss for the Hybrid Digital Twin (PgNN):
 
     L_total = λ_d · L_data  +  λ_p · L_physics  +  λ_b · L_bc
 
@@ -282,7 +282,7 @@ def boundary_condition_loss(
 
 
 class HybridPINNLoss(nn.Module):
-    """Three-component hybrid physics-informed loss function.
+    """Three-component hybrid physics-guided loss function.
 
     .. math::
         \\mathcal{L}_{total} =
@@ -297,12 +297,17 @@ class HybridPINNLoss(nn.Module):
 
     Notes
     -----
-    The physics loss uses **f_int(u, u̇)** (the nonlinear restoring force
-    recorded at each time step by OpenSeesPy) rather than a static K·u
-    product.  For RC sections modelled with Concrete02/Steel02, f_int
-    encodes cracking, yielding, strain hardening, and cyclic degradation.
-    This is what makes the digital twin "hybrid": physics from the FE
-    solver constrains the data-driven neural network.
+    The model is physics-guided through FEM training data (f_int, mass_matrix)
+    and physics-tensor-informed story weights derived from OpenSeesPy NLTHA.
+
+    The EoM residual (L_physics) uses **f_int(u, u̇)** from OpenSeesPy fiber
+    sections encoding cracking, yielding, and cyclic degradation of Concrete02/Steel02.
+
+    **Important:** The physics residual gradient flows to model parameters only
+    in Seq2Seq mode (pred.dim()==3), where differentiable kinematics are computed
+    from predicted displacement histories. In scalar mode (pred.dim()==2), the
+    residual uses pre-computed FEM kinematics and serves as a data-consistency
+    indicator rather than a differentiable constraint.
 
     Examples
     --------

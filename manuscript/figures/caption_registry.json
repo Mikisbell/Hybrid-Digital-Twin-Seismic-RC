@@ -145,5 +145,117 @@
     "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
     "label": "error_distribution",
     "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "loss_curves.png",
+    "number": 1,
+    "caption": "Training and validation loss convergence for the HybridPINN model. Best validation loss (0.3279) reached at epoch 32. Training used AdamW optimizer with cosine annealing warm restarts.",
+    "label": "loss_curves",
+    "path": "manuscript/figures/loss_curves.png"
+  },
+  {
+    "figure": "pred_vs_actual.png",
+    "number": 2,
+    "caption": "Predicted vs. actual peak inter-story drift ratio (IDR) for each story on the held-out test set (N=695). Overall RMSE = 1.363%, R² = -0.949.",
+    "label": "pred_vs_actual",
+    "path": "manuscript/figures/pred_vs_actual.png"
+  },
+  {
+    "figure": "error_distribution.png",
+    "number": 3,
+    "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
+    "label": "error_distribution",
+    "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "r2_accuracy_profile.png",
+    "number": 4,
+    "caption": "Per-story $R^2$ accuracy profile comparing the N=3 (v1.6, PEER real data) measured results with the N=10 (v2.0) theoretical prediction envelope. The shaded orange region (Floors 8–10) marks the whiplash zone where higher-mode participation degrades prediction accuracy. The dashed grey line indicates $R^2 = 0.50$ (minimum acceptable threshold).",
+    "label": "r2_accuracy_profile",
+    "path": "manuscript/figures/r2_accuracy_profile.png"
+  },
+  {
+    "figure": "loss_curves.png",
+    "number": 1,
+    "caption": "Training and validation loss convergence for the HybridPINN model. Best validation loss (0.2988) reached at epoch 32. Training used AdamW optimizer with cosine annealing warm restarts.",
+    "label": "loss_curves",
+    "path": "manuscript/figures/loss_curves.png"
+  },
+  {
+    "figure": "pred_vs_actual.png",
+    "number": 2,
+    "caption": "Predicted vs. actual peak inter-story drift ratio (IDR) for each story on the held-out test set (N=695). Overall RMSE = 0.523%, R² = 0.713.",
+    "label": "pred_vs_actual",
+    "path": "manuscript/figures/pred_vs_actual.png"
+  },
+  {
+    "figure": "error_distribution.png",
+    "number": 3,
+    "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
+    "label": "error_distribution",
+    "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "r2_accuracy_profile.png",
+    "number": 4,
+    "caption": "Per-story $R^2$ accuracy profile comparing the N=3 (v1.6, PEER real data) measured results with the N=10 (v2.0) theoretical prediction envelope. The shaded orange region (Floors 8–10) marks the whiplash zone where higher-mode participation degrades prediction accuracy. The dashed grey line indicates $R^2 = 0.50$ (minimum acceptable threshold).",
+    "label": "r2_accuracy_profile",
+    "path": "manuscript/figures/r2_accuracy_profile.png"
+  },
+  {
+    "figure": "loss_curves.png",
+    "number": 1,
+    "caption": "Training and validation loss convergence for the HybridPINN model. Best validation loss (0.2988) reached at epoch 32. Training used AdamW optimizer with cosine annealing warm restarts.",
+    "label": "loss_curves",
+    "path": "manuscript/figures/loss_curves.png"
+  },
+  {
+    "figure": "pred_vs_actual.png",
+    "number": 2,
+    "caption": "Predicted vs. actual peak inter-story drift ratio (IDR) for each story on the held-out test set (N=695). Overall RMSE = 0.523%, R² = 0.713.",
+    "label": "pred_vs_actual",
+    "path": "manuscript/figures/pred_vs_actual.png"
+  },
+  {
+    "figure": "error_distribution.png",
+    "number": 3,
+    "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
+    "label": "error_distribution",
+    "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "r2_accuracy_profile.png",
+    "number": 4,
+    "caption": "Per-story $R^2$ accuracy profile comparing the N=3 (v1.6, PEER real data) measured results with the N=10 (v2.0) theoretical prediction envelope. The shaded orange region (Floors 8–10) marks the whiplash zone where higher-mode participation degrades prediction accuracy. The dashed grey line indicates $R^2 = 0.50$ (minimum acceptable threshold).",
+    "label": "r2_accuracy_profile",
+    "path": "manuscript/figures/r2_accuracy_profile.png"
+  },
+  {
+    "figure": "loss_curves.png",
+    "number": 1,
+    "caption": "Training and validation loss convergence for the HybridPINN model. Best validation loss (0.3057) reached at epoch 112. Training used AdamW optimizer with cosine annealing warm restarts.",
+    "label": "loss_curves",
+    "path": "manuscript/figures/loss_curves.png"
+  },
+  {
+    "figure": "pred_vs_actual.png",
+    "number": 2,
+    "caption": "Predicted vs. actual peak inter-story drift ratio (IDR) for each story on the held-out test set (N=695). Overall RMSE = 0.535%, R² = 0.700.",
+    "label": "pred_vs_actual",
+    "path": "manuscript/figures/pred_vs_actual.png"
+  },
+  {
+    "figure": "error_distribution.png",
+    "number": 3,
+    "caption": "Box plot of prediction errors (predicted − actual IDR) for each story on the held-out test set. The dashed line indicates zero error.",
+    "label": "error_distribution",
+    "path": "manuscript/figures/error_distribution.png"
+  },
+  {
+    "figure": "r2_accuracy_profile.png",
+    "number": 4,
+    "caption": "Per-story $R^2$ accuracy profile comparing the N=3 (v1.6, PEER real data) measured results with the N=10 (v2.0) theoretical prediction envelope. The shaded orange region (Floors 8–10) marks the whiplash zone where higher-mode participation degrades prediction accuracy. The dashed grey line indicates $R^2 = 0.50$ (minimum acceptable threshold).",
+    "label": "r2_accuracy_profile",
+    "path": "manuscript/figures/r2_accuracy_profile.png"
   }
 ]

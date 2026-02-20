@@ -502,12 +502,20 @@ def create_loaders(
     data: dict[str, Any],
     batch_size: int = 64,
     num_workers: int = 0,
+    output_sequence: bool = False,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """Create DataLoaders for train/val/test from data dictionary.
 
     Data dictionary structure (from pipeline.py):
         "train": {"x": ..., "y": ..., "f_int": ...},
         "val": ...
+
+    Parameters
+    ----------
+    output_sequence : bool
+        If False (default), extract peak IDR from time-history y tensors:
+        y shape (B, N, T) → (B, N) via abs().amax(dim=-1).
+        Set True only when model predicts full displacement sequences.
     """
 
     def build_dataset(split_data: dict[str, torch.Tensor] | tuple) -> TensorDataset:
@@ -518,6 +526,11 @@ def create_loaders(
         # Dict mode
         x = split_data["x"]
         y = split_data["y"]
+
+        # Extract peak IDR when training scalar model
+        if not output_sequence and y.dim() == 3:
+            y = y.abs().amax(dim=-1)  # (B, N, T) → (B, N)
+
         tensors = [x, y]
 
         # Check for physics tensors

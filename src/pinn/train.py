@@ -74,14 +74,45 @@ def main() -> None:
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     parser.add_argument("--lambda-phys", type=float, default=0.1, help="Physics loss weight")
     parser.add_argument(
-        "--n-stories", type=int, default=5, help="Number of building stories (output dim)"
+        "--scheduler-t0", type=int, default=50, help="Cosine annealing T_0 (epochs per cycle)"
+    )
+    parser.add_argument(
+        "--n-stories",
+        type=int,
+        default=None,
+        help=(
+            "Number of building stories (output dim). "
+            "If omitted, auto-detected from global_config.json in --processed-dir."
+        ),
     )
     parser.add_argument("--output-sequence", action="store_true", help="Predict full time history")
     parser.add_argument(
-        "--experiment-name", type=str, default="pinn_experiment", help="Experiment name for logging"
+        "--experiment-name", type=str, default="pgnn_experiment", help="Experiment name for logging"
+    )
+    parser.add_argument(
+        "--transfer-from",
+        type=str,
+        default=None,
+        help="Path to a source checkpoint for transfer learning. "
+        "Loads encoder+attention weights and freezes them; only the head is trained.",
     )
 
     args = parser.parse_args()
+
+    # Auto-detect n_stories from the processed data directory when not provided.
+    if args.n_stories is None:
+        from src.config import GlobalConfig
+
+        try:
+            g_cfg = GlobalConfig.from_processed_dir(args.processed_dir)
+            args.n_stories = g_cfg.n_stories
+            print(f"[train] n_stories auto-detected from GlobalConfig: {args.n_stories}")
+        except FileNotFoundError:
+            args.n_stories = 5
+            print(
+                "[train] No global_config.json found in processed dir; "
+                f"falling back to n_stories={args.n_stories}."
+            )
 
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
@@ -123,7 +154,9 @@ def main() -> None:
 
     # Create DataLoaders
     # create_loaders returns 3 loaders now
-    train_loader, val_loader, test_loader = create_loaders(data, batch_size=args.batch_size)
+    train_loader, val_loader, test_loader = create_loaders(
+        data, batch_size=args.batch_size, output_sequence=args.output_sequence
+    )
 
     # Build model
     model_cfg = PINNConfig(
@@ -133,6 +166,40 @@ def main() -> None:
     )
     model = HybridPINN(model_cfg)
     logger.info("Model: %d parameters", model.count_parameters())
+
+    # Transfer learning: load encoder+attention from a source checkpoint, freeze them
+    if args.transfer_from:
+        src_ckpt = torch.load(args.transfer_from, weights_only=False, map_location="cpu")
+        src_sd = src_ckpt["model_state_dict"]
+        # Copy encoder and attention weights (skip head — different n_stories)
+        transferred, skipped = 0, 0
+        tgt_sd = model.state_dict()
+        for k, v in src_sd.items():
+            if k in tgt_sd and tgt_sd[k].shape == v.shape:
+                tgt_sd[k] = v
+                transferred += 1
+            else:
+                skipped += 1
+        model.load_state_dict(tgt_sd)
+        # Freeze encoder + attention
+        frozen = 0
+        for name, param in model.named_parameters():
+            if "encoder" in name or "attention" in name:
+                param.requires_grad = False
+                frozen += 1
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total = model.count_parameters()
+        logger.info(
+            "Transfer learning: loaded %d/%d layers from %s, froze %d params. "
+            "Trainable: %d/%d (%.1f%%)",
+            transferred,
+            transferred + skipped,
+            args.transfer_from,
+            frozen,
+            trainable,
+            total,
+            100 * trainable / total,
+        )
     # logger.info("\n%s", model.summary())
 
     # Configure training
@@ -149,6 +216,8 @@ def main() -> None:
         lambda_data=1.0,
         lambda_phys=args.lambda_phys,
         lambda_bc=0.01,
+        # Scheduler
+        scheduler_t0=args.scheduler_t0,
     )
 
     # Train

@@ -271,3 +271,23 @@ data/models/synthetic_3story_backup/
 data/models/long_run/
 training_log.txt
 data/external/peer_nga/*.zip
+
+# ── N=10 model weights (large binaries; JSON metrics tracked separately) ───
+data/models_n10_*/**/*.pt
+data/models_n10_*/**/*.pth
+data/models_n10_scalar/
+
+# ── Build artifacts ─────────────────────────────────────────────────────────
+_build/
+pandoc-*.deb
+
+# ── Training logs (reproducible from code) ──────────────────────────────────
+*_log.txt
+training_log*.txt
+
+# ── External templates ──────────────────────────────────────────────────────
+HRPUB_Manu_Template_V1.doc
+*:Zone.Identifier
+
+# ── Claude Code state ──────────────────────────────────────────────────────
+.claude/

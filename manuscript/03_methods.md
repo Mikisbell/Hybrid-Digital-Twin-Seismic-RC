@@ -1,19 +1,61 @@
-# 3. Methods
+# 3. Materials and Methods
 
-<!-- HRPUB Section: Methods -->
-<!-- CRITICAL: HRPUB requires complete methodology description including
-     data processing, statistical tests, and computational procedures. -->
+## 3.1 Structural Model
 
-## 3.1 Parametric FEM Reference Model
+The reference dataset is generated using high-fidelity Nonlinear Time History
+Analysis (NLTHA) implemented in OpenSeesPy [1, 19]. The structural system consists of
+a parametric reinforced concrete (RC) plane frame with $N$ stories and 3 bays,
+where $N$ is a runtime argument validated by the centralized configuration system
+(Section 3.6). Two building heights were studied: a 3-story low-rise frame
+($N=3$) for primary model validation, and a 10-story mid-rise frame ($N=10$) for
+scalability assessment under higher-mode dominated seismic response.
 
-The proposed framework is built upon a high-fidelity nonlinear finite element model (FEM) developed in OpenSeesPy. Unlike traditional surrogate models, this system is fully parametric, allowing the generation of training data for $N$-story reinforced concrete (RC) frames by varying geometric and material properties. For the final validation, a 10-story frame ($N=10$) is utilized to assess the model's capability to capture higher-mode effects under real seismic excitations from the PEER NGA-West2 database.
+### 3.1.1 Finite Element Implementation
 
-The reference model specifically employs:
-1.  **Fiber Sections**: Distributed plasticity with `Concrete02` (Mander confinement) and `Steel02` (Giuffré-Menegotto-Pinto).
-2.  **Element Formulation**: Displacement-based beam-column elements with P-Delta geometric nonlinearity.
-3.  **Variable Geometry**: Column cross-sections ($700^2 \to 500^2$ mm) and reinforcement ratios taper along the height to simulate realistic design practices.
+Structural nonlinearity is modeled using **force-based beam-column elements**
+(`forceBeamColumn`) with 5-point Gauss-Lobatto integration along the element
+length — a formulation that avoids the localization issues inherent in
+displacement-based elements and provides section-level plastic hinge resolution
+without mesh refinement. Material nonlinearity is captured through
+fiber-discretized cross-sections with the following constitutive assignments:
 
-## 3.2 Ground Motion Selection (PEER NGA-West2)
+- **Confined concrete** (`Concrete02`): Mander's confinement model with
+  $f'_{cc} = \kappa_c f'_c$ where $\kappa_c \approx 1.3$ for the interior
+  confined core, transitioning to unconfined cover properties at the boundary
+  fibers. Cyclic stiffness degradation and crack-closing stiffness are
+  modeled via the linear tension stiffening parameter $\lambda$ [7].
+
+- **Longitudinal reinforcement** (`Steel02`): Giuffré-Menegotto-Pinto model
+  for smooth cyclic hardening with isotropic strain hardening ratio
+  $b = 0.01$ and curvature parameters $R_0 = 18$, $cR_1 = 0.925$,
+  $cR_2 = 0.15$ [8].
+
+- **Mass**: Lumped at beam-column nodes as per seismic design standards
+  (ACI 318-19 [5]), computed from tributary area and dead load assumptions.
+
+**Rayleigh damping** is assigned with 5% critical damping at the first and
+third modal periods, consistent with code-level design practice for RC frames.
+P-Delta geometric nonlinearity is activated via the `PDelta` transformation.
+
+### 3.1.2 Structural Configuration
+
+For $N=3$: uniform column sections ($400 \times 400$ mm, $\rho_l = 2\%$),
+story height 3.5 m (first story) and 3.0 m (upper stories), bay width 5.0 m.
+
+For $N=10$: tapering column sections ($700 \times 700$ mm at grade $\to$
+$500 \times 500$ mm at roof), with longitudinal reinforcement ratios decreasing
+from $\rho_l = 2.5\%$ to $\rho_l = 1.5\%$ to simulate realistic design
+practice for mid-rise RC buildings (Figure 2).
+
+![RC frame schematic](figures/rc_frame_schematic.png)
+
+Figure 2. Parametric RC frame configurations: (a) 3-story uniform frame ($N=3$);
+(b) 10-story frame with tapering sections ($N=10$) — orange band marks the
+Floors 8–10 whiplash zone; (c) fiber section cross-section detail showing
+unconfined cover (Concrete02), confined core (Mander confinement), and
+longitudinal reinforcement (Steel02 / Giuffré-Menegotto-Pinto).
+
+## 3.2 Ground Motion Selection
 
 Ground motion records were obtained from the PEER NGA-West2 database [2], the
 most comprehensive publicly available collection of processed strong-motion
@@ -22,105 +64,218 @@ recordings from shallow crustal earthquakes in active tectonic regimes.
 ### 3.2.1 Selection Criteria
 
 Records were selected using the following engineering criteria, consistent with
-ASCE 7-22 §16.2 requirements for nonlinear response-history analysis:
+ASCE 7-22 [18] §16.2 requirements for nonlinear response-history analysis:
+
+**Table 1.** Ground motion selection criteria (PEER NGA-West2 [2], ASCE 7-22).
 
 | Parameter | Range | Rationale |
-|-----------|-------|-----------|
+|:---|:---|:---|
 | Moment magnitude ($M_w$) | 6.0 – 7.5 | Destructive events governing code-level design |
-| Joyner-Boore distance ($R_{jb}$) | 10 – 50 km | Near-to-moderate field; avoids near-fault directivity and far-field attenuation artifacts |
-| Shear-wave velocity ($V_{s30}$) | 180 – 760 m/s | NEHRP site classes C and D (stiff soil to soft rock) |
-| Fault mechanism | All types | Captures variability across strike-slip, reverse, and normal faulting |
+| Joyner-Boore distance ($R_{jb}$) | 10 – 50 km | Near-to-moderate field; avoids directivity and attenuation artifacts |
+| Shear-wave velocity ($V_{s30}$) | 180 – 760 m/s | NEHRP site classes C–D (stiff soil to soft rock) |
+| Fault mechanism | All types | Variability across strike-slip, reverse, and normal faulting |
 
-### 3.2.2 Downloaded Dataset
+The search yielded 100 unique seismic events (identified by Record Sequence
+Number, RSN), providing 299 ground motion components. All records were
+downloaded in unscaled AT2 format and subsequently scaled to match the
+site-specific ASCE 7-22 design spectrum ($S_{DS} = 1.0$ g, $S_{D1} = 0.6$ g)
+using the minimum scaling factor procedure, with a maximum allowable scale
+factor of 5.0 to limit spectral shape distortion.
 
-The search yielded **100 unique seismic events** (identified by Record Sequence
-Number, RSN), providing **299 three-component time histories** (two horizontal
-and one vertical per station).  Only the horizontal components are used for
-the 2D frame analysis, yielding approximately **200 input time series**.  All
-records were downloaded in unscaled AT2 format (acceleration in units of *g*),
-and subsequently scaled to match the site-specific ASCE 7-22 design spectrum
-using the automated scaling procedure implemented in `data_factory.py`, with
-a maximum allowable scale factor of 5.0.
+### 3.2.2 Input Feature Pipeline
+
+Each AT2 record is preprocessed into a fixed-length input tensor
+$\mathbf{x} \in \mathbb{R}^{1 \times T}$ via the following steps:
+
+1. **Unit conversion**: Raw acceleration (*g*) converted to m/s².
+2. **Resampling**: Linear interpolation to a uniform time step
+   $\Delta t = 0.01$ s (consistent with the NLTHA integration step).
+3. **Zero-padding or truncation**: Signal length adjusted to $T = 2048$ samples
+   (20.48 s), covering the strong-motion duration of all selected records.
+4. **Standardization**: Zero-mean, unit-variance normalization using statistics
+   computed on the training split only, applied to validation and test splits
+   without leakage.
+
+The preprocessing pipeline is implemented in `src/preprocessing/pipeline.py`
+and serializes scaler parameters to `scaler_params.json` for deterministic
+denormalization during inference.
 
 ### 3.2.3 Data Augmentation Strategy
 
-To expand the effective training set beyond the 100 base events, three
-augmentation techniques are applied by the preprocessing pipeline
-(`src/preprocessing/pipeline.py`):
+To expand the effective training set beyond the 203 base training records,
+three augmentation techniques are applied:
 
-1. **Temporal windowing**: overlapping sub-windows of the strong-motion
-   duration, increasing temporal diversity.
-2. **Amplitude scaling**: random scaling within ±20% of the original PGA,
-   simulating intensity variability.
-3. **Gaussian noise injection**: additive noise ($\sigma = 0.01g$) to improve
-   model robustness against measurement uncertainty.
+1. **Temporal windowing**: Overlapping sub-windows of the strong-motion
+   duration increase temporal diversity within each record.
+2. **Amplitude scaling**: Random PGA scaling within $\pm 20\%$ of the
+   original value simulates intensity variability at the training site.
+3. **Gaussian noise injection**: Additive noise ($\sigma = 0.01$ g) improves
+   robustness against accelerometer measurement uncertainty.
 
-These techniques transform the 100 base records into approximately
-**1,000–1,500 training samples**, providing sufficient statistical robustness
-for the PINN while capturing the aleatory variability inherent in seismic
-ground motions across magnitudes, distances, and site conditions.
+These techniques transform 203 base records into 5,058 training samples
+(augmentation ratio 24.9:1), providing sufficient statistical robustness
+for the PgNN across magnitudes, distances, and site conditions.
 
-## 3.3 Seq2Seq PINN Architecture (v2.0)
+## 3.3 PgNN Architecture
 
-To overcome the limitations of scalar regression (v1.0) in predicting upper-story responses, we transition to a **Sequence-to-Sequence (Seq2Seq)** architecture. The model consists of:
+The Hybrid PgNN is a **Convolutional-Attentive Regressor** that maps a
+ground acceleration time-series $\ddot{u}_g(t) \in \mathbb{R}^T$ to the
+vector of peak inter-story drift ratios (IDR) $\hat{\mathbf{y}} \in \mathbb{R}^N$
+— one scalar per story. The architecture is fully parametric: only the output
+head dimension changes with $N$, leaving the encoder weights transferable
+across building heights without retraining.
 
-1.  **Temporal Encoder**: A 1D-CNN backbone coupled with Multi-Head Self-Attention layers to extract deep temporal features from the input ground acceleration $\ddot{u}_g(t)$.
-2.  **History Decoder**: A dense output head that reconstructs the full displacement time-history $\mathbf{u}(t) \in \mathbb{R}^{N \times T}$ for all stories simultaneously.
-
-By predicting the complete time-series, the network is forced to maintain temporal phase consistency, which is critical for resolving high-frequency oscillations in upper levels (e.g., Story 3 and above).
-
-**Table 1.** Hybrid-PINN v2.0 architecture specification. $B$: Batch size, $N$: Stories (5).
+**Table 2.** Hybrid PgNN architecture specification. $B$: batch size; $N$:
+stories (parametric, validated at $N=3$ and $N=10$); $T = 2048$.
 
 | Layer | Configuration | Output Shape |
-|-------|---------------|--------------|
-| *Input* | Ground acceleration $\ddot{u}_g(t)$ | $(B, 1, 2048)$ |
-| Conv Block 1 | $1 \to 32$ channels, $k{=}7$, $s{=}2$ | $(B, 32, 1024)$ |
-| Conv Block 2 | $32 \to 64$ channels, $k{=}5$, $s{=}2$ | $(B, 64, 512)$ |
-| Conv Block 3 | $64 \to 128$ channels, $k{=}3$, $s{=}2$ | $(B, 128, 256)$ |
-| Upsample | Interpolate to original length $T$ | $(B, 128, 2048)$ |
-| Projection | Linear $128 \to 32$ | $(B, 32, 2048)$ |
-| **Output Head** | **Linear $32 \to N$ (applied per step)** | **$(B, 5, 2048)$** |
+|:---|:---|:---|
+| *Input* | Ground acceleration $\ddot{u}_g(t)$ | $(B,\ 1,\ T)$ |
+| Conv Block 1 | $1\!\to\!32$ channels, $k{=}7$, $s{=}2$, BatchNorm + ReLU | $(B,\ 32,\ T/2)$ |
+| Conv Block 2 | $32\!\to\!64$ channels, $k{=}5$, $s{=}2$, BatchNorm + ReLU | $(B,\ 64,\ T/4)$ |
+| Conv Block 3 | $64\!\to\!128$ channels, $k{=}3$, $s{=}2$, BatchNorm + ReLU | $(B,\ 128,\ T/8)$ |
+| Self-Attention | 4 heads, embed\_dim $= 128$ (v1.6) | $(B,\ 128,\ T/8)$ |
+| Global Avg. Pool | Temporal pooling over $T/8$ | $(B,\ 128)$ |
+| **Output Head** | **Linear $128 \to N$** | **$(B,\ N)$** |
 
-## 3.4 Kinematic-Informed Regularization
+The three convolutional blocks progressively reduce temporal resolution while
+expanding feature depth, with batch normalization [25] and ReLU activations
+(selected over alternatives such as Swish [9] based on training stability).
+The encoder captures seismic frequency content at multiple scales (broadband,
+strong-motion, pulse-like). The multi-head self-attention layer [24] (4 heads,
+embed\_dim $= 128$) allows the model to attend to specific temporal phases of
+the ground motion — including peak energy arrival and strong-motion duration —
+improving prediction coherence for upper-story responses dominated by higher
+vibration modes.
 
-The "Hybrid" nature of the Digital Twin arises from a custom loss function that enforces the Equation of Motion (EoM) during training. We adopt a **Teacher Forcing** strategy for the internal forces $\mathbf{f}_{int}$, regularizing the predicted kinematics:
+![PgNN architecture diagram](figures/pinn_architecture.png)
 
-$$\mathcal{L}_{reg} = \| \mathbf{M}\ddot{\mathbf{u}}_{pred} + \mathbf{C}\dot{\mathbf{u}}_{pred} + \mathbf{f}_{int}(\mathbf{u}_{true}) + \mathbf{M}\boldsymbol{\iota}\ddot{u}_g \|^2$$
+Figure 3. Hybrid PgNN architecture. Three 1D-CNN blocks with progressive downsampling
+extract multiscale temporal features; self-attention resolves long-range dependencies
+in the ground motion signal; global average pooling and a linear head produce $N$
+story-level IDR predictions. The FEM-guided loss $\mathcal{L}_{reg}$ (dashed arrow)
+couples predicted kinematics to FEM restoring forces $\mathbf{f}_{int}$ during training.
 
-Where $\ddot{\mathbf{u}}_{pred}$ and $\dot{\mathbf{u}}_{pred}$ are computed via **differentiable finite differences** within the PyTorch computational graph. This formulation acts as a physics-based low-pass filter, penalizing non-physical smoothing and ensuring the Digital Twin remains a faithful emulator of the FEM's dynamic behavior.
+## 3.4 FEM-Guided Loss Function
 
-### 3.4.1 Loss Components
-The total loss $\mathcal{L}_{total}$ integrates data fidelity, physics regularization, and boundary conditions:
+The "Hybrid" nature of the Digital Twin arises from a composite loss function
+that embeds OpenSeesPy physics at three levels of the training objective.
 
-$$\mathcal{L}_{total} = \lambda_d \mathcal{L}_{data} + \lambda_p \mathcal{L}_{reg} + \lambda_b \mathcal{L}_{bc}$$
+**Level 1 — Per-story inverse-variance weights.**
+The nonlinear response statistics $\sigma_j$ from the NLTHA campaign directly
+inform the data loss weighting, following the multi-task learning principle of
+uncertainty-based loss balancing [23]. For each story $j$, the inverse-variance weight
+$w_j \propto 1/\sigma_j^2$ compensates for the amplitude imbalance between
+lower and upper stories — lower floors experience smaller drifts but must be
+predicted with equal relative precision:
 
-1.  **Data Loss ($\mathcal{L}_{data}$)**: MSE of displacement histories $\mathbf{u}(t)$.
-2.  **Physics Loss ($\mathcal{L}_{reg}$)**: The kinematic residual defined above.
-3.  **Boundary Loss ($\mathcal{L}_{bc}$)**: Enforcing zero initial displacement and velocity.
+$$w_j = \frac{1/\sigma_j}{\sum_{k=1}^{N} 1/\sigma_k} \cdot N \tag{2}$$
+
+For $N=3$, the resulting weight ratio $w_1/w_3 \approx 2.15$ reflects the
+higher variability of upper-story responses. For $N=10$, $w_1/w_{10} \approx 6.86$
+captures the amplified whiplash effect.
+
+**Level 2 — FEM-supervised data fidelity ($\mathcal{L}_{data}$).**
+The primary training signal is the per-story weighted MSE between predicted and
+FEM-simulated peak IDR:
+
+$$\mathcal{L}_{data} = \sum_{j=1}^{N} w_j \bigl(\hat{y}_j - y_j^{FEM}\bigr)^2 \tag{3}$$
+
+where $y_j^{FEM} = \max_t |u_j(t)|$ is the peak absolute displacement per story,
+extracted from OpenSeesPy NLTHA and stored as the training target.
+
+**Level 3 — FEM physics tensor regularization ($\mathcal{L}_{reg}$).**
+The nonlinear restoring forces $\mathbf{f}_{int}$, floor accelerations
+$\ddot{\mathbf{u}}$, and velocities $\dot{\mathbf{u}}$ — all extracted from
+OpenSeesPy fiber sections during the NLTHA campaign — are stored as physics
+tensors alongside each training sample. Unlike prior work that approximates
+$\mathbf{f}_{int}$ analytically [10], these tensors encode concrete cracking,
+steel yielding, and cyclic stiffness degradation directly from FEM. In the
+full sequence mode, they enable a differentiable equation-of-motion residual:
+
+$$\mathcal{L}_{reg} = \bigl\| \mathbf{M}\ddot{\mathbf{u}}_{pred} +
+\mathbf{C}\dot{\mathbf{u}}_{pred} + \mathbf{f}_{int}(\mathbf{u}_{true}) +
+\mathbf{M}\boldsymbol{\iota}\ddot{u}_g \bigr\|^2 \tag{4}$$
+
+### 3.4.1 Total Loss Formulation
+
+The total training objective integrates data fidelity, physics regularization,
+and initial condition enforcement:
+
+$$\mathcal{L}_{total} = \lambda_d\,\mathcal{L}_{data} + \lambda_p\,\mathcal{L}_{reg} + \lambda_b\,\mathcal{L}_{bc} \tag{5}$$
+
+**Table 3.** Loss components and their FEM physics grounding.
+
+| Component | Weight | FEM Physics Source | Role |
+| :--- | :--- | :--- | :--- |
+| $\mathcal{L}_{data}$ | $\lambda_d = 1.0$ | NLTHA peak IDR targets $y_j^{FEM}$ | Primary supervised fidelity |
+| $\mathcal{L}_{reg}$ | $\lambda_p = 0.1$ | $\mathbf{f}_{int}$, $\ddot{\mathbf{u}}$, $\dot{\mathbf{u}}$ tensors | EoM residual (active in sequence mode) |
+| $\mathcal{L}_{bc}$ | $\lambda_b = 0.01$ | Zero initial conditions from NLTHA | Prevents spurious pre-event offsets |
+
+Loss weights $\lambda_d$ and $\lambda_p$ are adapted dynamically during training
+using a self-adaptive scheme [15], with $\lambda_b = 0.01$ fixed.
 
 ## 3.5 Training Protocol
 
-All training hyperparameters are summarized in Table 2 and are fixed throughout
-this study to ensure full reproducibility per HRPUB requirements.
+**Table 4.** Training hyperparameters for the Hybrid PgNN (fixed for reproducibility).
 
-**Table 2.** Training hyperparameters for the Hybrid-PINN model.
+| Hyperparameter | N=3 | N=10 | Rationale |
+|:---|:---|:---|:---|
+| Optimizer | AdamW [11] | AdamW [11] | Decoupled weight decay |
+| Learning rate ($\eta$) | $1 \times 10^{-3}$ | $1 \times 10^{-3}$ | Standard for Adam-family optimizers |
+| Weight decay | $1 \times 10^{-4}$ | $1 \times 10^{-4}$ | L2 regularization against overfitting |
+| LR scheduler | CosineWarmRestarts [12] | CosineWarmRestarts [12] | Avoids local minima trapping |
+| Scheduler $T_0$ | 50 epochs | 200 epochs | Longer cycle prevents premature warm restart for N=10 |
+| Max epochs | 500 | 1000 | Upper bound; early stopping applies |
+| Early stopping patience | 50 | 100 | More patience for slower N=10 convergence |
+| Batch size | 64 | 16 | Smaller batches increase gradient updates per epoch |
+| Physics weight $\lambda_p$ | 0.1 (adaptive) | 0.1 (adaptive) | Balanced via self-adaptive scheme [15] |
+| Weight initialization | Kaiming uniform [14] | Kaiming uniform [14] | Optimal for ReLU activations |
 
-| Hyperparameter | Value | Rationale |
-|----------------|-------|-----------|
-| Optimizer | AdamW [11] | Decoupled weight decay; superior generalization |
-| Learning rate ($\eta$) | $1 \times 10^{-3}$ | Standard for Adam-family optimizers |
-| Weight decay | $1 \times 10^{-4}$ | L2 regularization for generalization |
-| Scheduler | CosineAnnealingWarmRestarts | Avoids premature convergence |
-| Max epochs | 500 | Upper bound (early stopping) |
-| Batch size | 64 | Balances gradient variance and memory |
-| Physics Weight $\lambda_p$ | 0.1 | Tuned to balance MSE and EoM residual |
+The $N=10$ training required a longer cosine annealing cycle ($T_0 = 200$ vs. 50)
+to prevent warm restarts from destabilizing the learned bias before convergence —
+a finding consistent with the increased output complexity of 10 correlated stories.
 
-## 3.6 Benchmarking Protocol
+The dataset is split into train / validation / test at a 70 / 15 / 15 ratio.
+Splits are performed at the record level (not sample level) to prevent
+data leakage between augmented variants of the same earthquake record.
+The best checkpoint (minimum validation loss) is saved and used for all
+reported evaluations.
 
-Real-time applicability requires inference latency ≤ 100 ms. The benchmarking
-script (`src/pinn/benchmark_latency.py`) measures:
+## 3.6 Reproducibility Framework
 
-1. **Cold start**: First inference after model load
-2. **Warm inference**: Mean of 1000 consecutive predictions
-3. **Batch throughput**: Predictions per second at batch sizes 1, 8, 32, 128
-4. **Hardware**: CPU-only (deployment target) and GPU (training)
+A recurring failure mode in multi-script machine learning pipelines is
+parameter inconsistency between the simulation, preprocessing, and training
+stages — particularly the mismatch of $N$ (number of stories) across pipeline
+stages when scaling from $N=3$ to $N=10$. This study implements a centralized
+`GlobalConfig` serialization framework to prevent such errors.
+
+At the end of each simulation campaign, `data_factory.py` writes a
+`global_config.json` file to the output directory encoding $N$, $n_{bays}$,
+$\Delta t$, and $T$. The preprocessing pipeline (`pipeline.py`) reads and
+validates this file at startup, raising a descriptive `ValueError` if the
+`--n-stories` CLI argument conflicts with the stored simulation configuration.
+The training script (`train.py`) auto-detects $N$ from the saved configuration,
+eliminating the need for manual synchronization across three separate entry
+points.
+
+This architecture ensures that:
+
+$$\text{GlobalConfig}(N,\, n_{bays},\, \Delta t,\, T) : \text{data\_factory} \xrightarrow{\text{validate}} \text{pipeline} \xrightarrow{\text{auto-detect}} \text{train}$$
+
+## 3.7 Benchmarking Protocol
+
+Real-time applicability requires inference latency $\leq 100$ ms for deployment
+in structural health monitoring loops and semi-active damper control systems.
+Latency is measured on a standard CPU environment (Intel Core processor, no GPU
+acceleration) using the following protocol:
+
+1. **Cold start**: First inference immediately after model load (cache empty).
+2. **Warm inference**: Mean of 200 consecutive predictions after 10 warm-up
+   runs (cache filled); this is the operationally relevant metric.
+3. **Batch throughput**: Predictions per second at batch sizes 1, 8, 32, and
+   128 to characterize deployment flexibility.
+
+All reported latency figures correspond to batch size 1 (single-record,
+single-query mode) as required for real-time structural monitoring where
+sensor streams arrive sequentially.

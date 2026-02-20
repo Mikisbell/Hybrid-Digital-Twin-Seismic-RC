@@ -1,7 +1,8 @@
-# 7. Acknowledgements
+# Acknowledgements
 
-<!-- HRPUB Section: Acknowledgements -->
+The author acknowledges the Pacific Earthquake Engineering Research Center
+(PEER) for providing open access to the NGA-West2 ground motion database,
+which was essential for this study (http://peer.berkeley.edu).
 
-The authors would like to acknowledge the Pacific Earthquake Engineering Research Center (PEER) for providing access to the NGA-West2 database, which was instrumental for this research. The data used in this study were obtained from the PEER Center ground motion database (http://peer.berkeley.edu).
-
-The authors declare that there is no conflict of interest regarding the publication of this paper.
+This research did not receive any specific grant from funding agencies in the
+public, commercial, or not-for-profit sectors.
